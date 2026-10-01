@@ -51,6 +51,11 @@ enum EntityType {
   DEPARTMENT
 }
 
+enum DescriptionFormat {
+  TEXT
+  FIELDS
+}
+
 enum NotificationType {
   TASK_ASSIGNED
   TASK_DUE_SOON
@@ -256,24 +261,28 @@ model ProposalCounter {
 
 /// Task / Sub task / Mini task — adjacency list, max depth 3 (CHECK in migration).
 model Task {
-  id            String       @id @default(uuid()) @db.Uuid
-  proposalId    String       @map("proposal_id") @db.Uuid
-  parentId      String?      @map("parent_id") @db.Uuid
-  level         Int          @db.SmallInt
-  title         String
-  description   String?
-  startDate     DateTime?    @map("start_date") @db.Date
-  dueDate       DateTime?    @map("due_date") @db.Date
+  id                String            @id @default(uuid()) @db.Uuid
+  proposalId        String            @map("proposal_id") @db.Uuid
+  parentId          String?           @map("parent_id") @db.Uuid
+  level             Int               @db.SmallInt
+  title             String
+  description       String?
+  /// TEXT = details are `description`; FIELDS = details are the `detailFields` rows.
+  descriptionFormat DescriptionFormat @default(TEXT) @map("description_format")
+  /// [{ id, label, value }] — label → value rows (FIELDS format), [] otherwise.
+  detailFields      Json              @default("[]") @map("detail_fields")
+  startDate         DateTime?         @map("start_date") @db.Date
+  dueDate           DateTime?         @map("due_date") @db.Date
   /// Responsible department / team, e.g. "NPD" (free text).
-  responsible   String?
-  priority      TaskPriority @default(MEDIUM)
-  isDone        Boolean      @default(false) @map("is_done")
-  completedAt   DateTime?    @map("completed_at") @db.Timestamptz(3)
-  completedById String?      @map("completed_by_id") @db.Uuid
-  sortOrder     Int          @default(0) @map("sort_order")
-  createdById   String       @map("created_by_id") @db.Uuid
-  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt     DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  responsible       String?
+  priority          TaskPriority      @default(MEDIUM)
+  isDone            Boolean           @default(false) @map("is_done")
+  completedAt       DateTime?         @map("completed_at") @db.Timestamptz(3)
+  completedById     String?           @map("completed_by_id") @db.Uuid
+  sortOrder         Int               @default(0) @map("sort_order")
+  createdById       String            @map("created_by_id") @db.Uuid
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   proposal    Proposal       @relation(fields: [proposalId], references: [id], onDelete: Cascade)
   parent      Task?          @relation("TaskTree", fields: [parentId], references: [id], onDelete: Cascade)

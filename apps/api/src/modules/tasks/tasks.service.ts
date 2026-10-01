@@ -1,16 +1,21 @@
 import { randomUUID } from 'node:crypto'
 import { Injectable } from '@nestjs/common'
 import {
+  applyDetailPatch,
   canManageTasks,
   canToggleTask,
   checkMove,
   computeProgress,
   computeToggle,
+  DESCRIPTION_FORMAT_LABEL,
+  DETAIL_FIELDS_MAX,
   getDescendantIds,
+  hasDetailPatch,
   isDueWithin,
   isOverdue,
   MAX_TASK_LEVEL,
   orderAsTree,
+  readDetailFields,
   todayBangkok,
   type Progress,
   type Task,
@@ -19,9 +24,9 @@ import {
 } from '@flowtrade/shared'
 import type { TaskWithContext } from '@flowtrade/shared/api-types'
 import { ActivityService } from '../../common/activity.service.js'
-import { forbidden, invalid, notFound } from '../../common/errors.js'
+import { conflict, forbidden, invalid, notFound } from '../../common/errors.js'
 import { fromDateOnly } from '../../common/dates.js'
-import { proposalInclude, taskInclude, toProposal, toStore, toTask } from '../../common/mappers.js'
+import { detailFieldsJson, proposalInclude, taskInclude, toProposal, toStore, toTask } from '../../common/mappers.js'
 import { ProposalAccessService } from '../../common/proposal-access.service.js'
 import { PrismaService, type Db } from '../../prisma/prisma.service.js'
 import { assigneeRows, clampIndex, lockProposal, TaskTree, validateDates, type TreeNode } from './task-tree.js'
@@ -185,6 +190,9 @@ export class TasksService {
 
   update(user: User, id: string, patch: UpdateTaskBody): Promise<Task> {
     return this.prisma.$transaction(async (tx) => {
+      // Row lock first: concurrent edits of one task run one after another, so detailValues
+      // always merge into the latest rows (two people filling different rows both keep their data).
+      await tx.task.updateMany({ where: { id }, data: { updatedAt: new Date() } })
       const task = await this.findTask(tx, id)
       const proposal = await this.access.load(tx, task.proposalId)
       await this.access.assertView(tx, user, proposal)
@@ -196,6 +204,22 @@ export class TasksService {
       if (isAssigneeOnly && (patch.assigneeIds || patch.title !== undefined || responsibleChanged)) {
         throw forbidden('ผู้รับผิดชอบแก้ไขได้เฉพาะรายละเอียดและวันที่')
       }
+      const formatChanged = patch.descriptionFormat !== undefined && patch.descriptionFormat !== task.descriptionFormat
+      const rowsEdited = patch.detailFields !== undefined || patch.detailAppend !== undefined || patch.detailLabels !== undefined || patch.detailRemove !== undefined
+      if (isAssigneeOnly && (formatChanged || rowsEdited)) {
+        throw forbidden('ผู้รับผิดชอบกรอกข้อมูลในตารางได้ ส่วนการเพิ่ม ลบ หรือแก้หัวข้อ และการเปลี่ยนรูปแบบ ให้ทีมงานโปรเจกต์เป็นผู้แก้')
+      }
+      const fieldsChanged = hasDetailPatch(patch)
+      let fields = task.detailFields
+      if (fieldsChanged) {
+        const applied = applyDetailPatch(task.detailFields, patch, randomUUID)
+        if (applied.missing.length) throw conflict('แถวข้อมูลนี้ถูกลบไปแล้ว — โหลดหน้าใหม่แล้วลองอีกครั้ง')
+        if (applied.fields.length > DETAIL_FIELDS_MAX) throw invalid(`ตารางมีได้ไม่เกิน ${DETAIL_FIELDS_MAX} แถว`, { detailFields: `ตารางมีได้ไม่เกิน ${DETAIL_FIELDS_MAX} แถว` })
+        if (new Set(applied.fields.map((f) => f.id)).size !== applied.fields.length) throw invalid('แถวข้อมูลซ้ำกัน', { detailFields: 'แถวข้อมูลซ้ำกัน' })
+        fields = applied.fields
+      }
+      const before = new Map(task.detailFields.map((f) => [f.id, f.value]))
+      const filled = Object.keys(patch.detailValues ?? {}).filter((fid) => fields.find((f) => f.id === fid)?.value !== before.get(fid)).length
       const start = patch.startDate !== undefined ? patch.startDate : task.startDate
       const due = patch.dueDate !== undefined ? patch.dueDate : task.dueDate
       validateDates(start, due)
@@ -220,6 +244,8 @@ export class TasksService {
         data: {
           title,
           ...(patch.description !== undefined ? { description: patch.description?.trim() || null } : {}),
+          ...(formatChanged ? { descriptionFormat: patch.descriptionFormat } : {}),
+          ...(fieldsChanged ? { detailFields: detailFieldsJson(fields) } : {}),
           ...(responsibleChanged ? { responsible: patch.responsible ?? null } : {}),
           ...(patch.priority ? { priority: patch.priority } : {}),
           startDate: fromDateOnly(start ?? null),
@@ -227,8 +253,15 @@ export class TasksService {
         },
       })
       await this.activity.notify(tx, added, assignedNotice(proposal.id, id, title), user.id)
-      const responsibleNote = responsibleChanged ? ` (แผนกผู้รับผิดชอบ: ${responsibleLabel(task.responsible)} → ${responsibleLabel(patch.responsible ?? null)})` : ''
-      await this.activity.log(tx, user, 'task.update', 'TASK', id, proposal.id, `แก้ไขงาน: ${title}${responsibleNote}`)
+      const notes: string[] = []
+      if (responsibleChanged) notes.push(`แผนกผู้รับผิดชอบ: ${responsibleLabel(task.responsible)} → ${responsibleLabel(patch.responsible ?? null)}`)
+      if (formatChanged) notes.push(`เปลี่ยนรายละเอียดเป็นแบบ${DESCRIPTION_FORMAT_LABEL[patch.descriptionFormat!]}`)
+      if (patch.detailFields) notes.push(`แก้ไขตารางข้อมูล ${fields.length} แถว`)
+      if (patch.detailRemove?.length) notes.push(`ลบหัวข้อ ${patch.detailRemove.length} แถว`)
+      if (patch.detailLabels && Object.keys(patch.detailLabels).length) notes.push(`แก้ชื่อหัวข้อ ${Object.keys(patch.detailLabels).length} แถว`)
+      if (filled) notes.push(`กรอกข้อมูล ${filled} ช่อง`)
+      if (patch.detailAppend?.length) notes.push(`เพิ่มหัวข้อ ${patch.detailAppend.length} แถว`)
+      await this.activity.log(tx, user, 'task.update', 'TASK', id, proposal.id, `แก้ไขงาน: ${title}${notes.length ? ` (${notes.join(', ')})` : ''}`)
       return this.findTask(tx, id)
     })
   }
@@ -371,6 +404,8 @@ export class TasksService {
             level: r.level,
             title: c.title,
             description: r.description,
+            descriptionFormat: r.descriptionFormat,
+            detailFields: detailFieldsJson(readDetailFields(r.detailFields)),
             startDate: r.startDate,
             dueDate: r.dueDate,
             responsible: r.responsible,

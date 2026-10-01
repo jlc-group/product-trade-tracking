@@ -23,9 +23,18 @@ Validation and error messages are Thai and are shown to users as-is. The web cli
   spelling. Unknown → 422, field `department`: `ไม่พบแผนกนี้ — เลือกจากรายชื่อแผนกที่ผู้ดูแลระบบกำหนด`.
   An inactive department can't be newly assigned (422 `แผนกนี้ถูกปิดการใช้งานแล้ว`), but a user who already has it
   keeps it. DB: FK `users.department → departments(name)` ON UPDATE CASCADE (a rename follows on every user)
-  ON DELETE RESTRICT. Department changes are not written to the activity log (no `DEPARTMENT` entity type).
+  ON DELETE RESTRICT. Department changes are written to the activity log (entity type `DEPARTMENT`).
 - **Responsible department**: `Task.responsible` / `TaskTemplateItem.responsible` / plan `responsible` is free text
   (e.g. `NPD`, `Graphics`; suggestions in `DEFAULT_DEPARTMENTS`) — trimmed, `''` → `null`, max 100 characters.
+- **Task details**: `Task.descriptionFormat` is `TEXT` (details = `description`) or `FIELDS` (details = `detailFields`,
+  rows of `{ id, label, value }`; `value: ''` = not filled yet; max 100 rows, label 1–200, value ≤ 2000 characters, trimmed).
+  `PATCH /tasks/:id` changes rows with `detailFields` (replace all), `detailRemove` (ids; gone ids ignored),
+  `detailLabels` / `detailValues` (`{ [rowId]: text }`, unknown id → 409) and `detailAppend` (rows added after the
+  latest rows), applied in that order by `applyDetailPatch` (`packages/shared/src/detail-fields.ts`). The task row is
+  locked for the update, so people editing different rows at the same time never overwrite each other.
+  Switching format does not convert content — the client sends the converted `description` / `detailFields`
+  (`parseDetailText` / `formatDetailFields`). Only managers change the format or the rows; assignees fill `detailValues`.
+  DB: `tasks.description_format` (enum), `tasks.detail_fields` (JSONB array, CHECK).
 - **Query strings**: booleans `true|false`; id lists comma-separated (`excluded=a,b`).
 - **Empty results**: an endpoint that returns `null` answers `200` with an empty body (the client maps it to `null`).
 - IDs are UUIDs; a malformed id answers 404.
@@ -79,16 +88,16 @@ Validation and error messages are Thai and are shown to users as-is. The web cli
 | PATCH | /proposals/:id | owner or `proposal.update.any` | `UpdateProposalInput` | `Proposal` |
 | POST | /proposals/:id/status | owner or `proposal.update.any` | `{ status }` | `Proposal` |
 | POST | /proposals/:id/target-date | owner or `proposal.update.any` | `{ targetDate, shiftTasks }` — `targetDate` must be the 15th (422) | `Proposal` |
-| POST | /proposals/:id/duplicate | `proposal.create` + can view | `{ storeId, targetDate }` — `targetDate` must be the 15th (422); tasks keep `responsible` | `Proposal` |
+| POST | /proposals/:id/duplicate | `proposal.create` + can view | `{ storeId, targetDate }` — `targetDate` must be the 15th (422); tasks keep `responsible` and the details table (values too) | `Proposal` |
 | DELETE | /proposals/:id | `proposal.delete.any`, or owner of a DRAFT | — | `true` |
 | GET | /proposals/:id/tasks | can view | — | `Task[]` (flat) |
 | GET | /proposals/:id/comment-counts | can view | — | `Record<taskId, count>` |
 | GET | /tasks/mine | signed in | `?status=open\|done\|all&due=overdue\|today\|week\|all&proposalId=` | `TaskWithContext[]` |
 | POST | /tasks | member/owner or `task.manage.any` | `CreateTaskInput` (optional `responsible` department) | `Task` |
-| PATCH | /tasks/:id | managers; assignees may change description/dates/priority only (not title, assignees or `responsible`) | `UpdateTaskInput` (`responsible: null` or `''` clears it; a change is noted in the activity log) | `Task` |
+| PATCH | /tasks/:id | managers; assignees may change description/dates/priority and fill `detailValues` only (not title, assignees, `responsible`, `descriptionFormat` or the table rows) | `UpdateTaskInput` (`responsible: null` or `''` clears it; table rows, see *Task details*; changes are noted in the activity log) | `Task` |
 | POST | /tasks/:id/toggle | managers or the task's assignees | `{ isDone }` | `{ changed: Task[], progress, allDone }` |
 | POST | /tasks/:id/move | managers | `MoveTaskInput` | `Task[]` (whole proposal) |
-| POST | /tasks/:id/duplicate | managers | — | `Task` (copy of subtree root, `responsible` copied) |
+| POST | /tasks/:id/duplicate | managers | — | `Task` (copy of subtree root, `responsible`, `descriptionFormat` and `detailFields` copied) |
 | DELETE | /tasks/:id | managers | — | `{ removed: string[] }` |
 | GET | /tasks/:id/comments | can view | — | `CommentWithAuthor[]` |
 | POST | /tasks/:id/comments | can view | `{ body }` | `CommentWithAuthor` |

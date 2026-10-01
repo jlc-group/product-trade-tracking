@@ -11,11 +11,11 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    port: Number(process.env.WEB_PORT ?? 5173),
     strictPort: true,
-    // Same-origin API in dev so the session cookie just works (apps/api listens on :3000).
+    // Same-origin API in dev so the session cookie just works (apps/api listens on :3000; API_PORT overrides).
     proxy: {
-      '/api': { target: 'http://localhost:3000', changeOrigin: false },
+      '/api': { target: `http://localhost:${process.env.API_PORT ?? 3000}`, changeOrigin: false },
     },
   },
 })

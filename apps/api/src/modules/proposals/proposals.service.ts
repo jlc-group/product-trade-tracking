@@ -8,6 +8,7 @@ import {
   diffDays,
   normalizePlan,
   planFromTemplate,
+  readDetailFields,
   STATUS_LABEL,
   todayBangkok,
   type ISODate,
@@ -18,7 +19,7 @@ import {
 import { ActivityService } from '../../common/activity.service.js'
 import { fromDateOnly, toDateOnly } from '../../common/dates.js'
 import { forbidden, invalid, notFound } from '../../common/errors.js'
-import { proposalInclude, taskInclude, templateInclude, toProposal, toTemplate } from '../../common/mappers.js'
+import { detailFieldsJson, proposalInclude, taskInclude, templateInclude, toProposal, toTemplate } from '../../common/mappers.js'
 import { ProposalAccessService } from '../../common/proposal-access.service.js'
 import type { Prisma } from '../../generated/prisma/client.js'
 import { PrismaService, type Db } from '../../prisma/prisma.service.js'
@@ -378,6 +379,8 @@ export class ProposalsService {
             level: t.level,
             title: t.title,
             description: t.description,
+            descriptionFormat: t.descriptionFormat,
+            detailFields: detailFieldsJson(readDetailFields(t.detailFields)),
             startDate: shift(t.startDate),
             dueDate: shift(t.dueDate),
             responsible: t.responsible,

@@ -19,6 +19,7 @@ const TASK_KEYS = [
   'level',
   'title',
   'description',
+  'descriptionFormat',
   'startDate',
   'dueDate',
   'responsible',
@@ -34,6 +35,7 @@ const TASK_KEYS = [
 
 function sameNode(prev: TaskNode, next: TaskNode, children: TaskNode[]) {
   for (const k of TASK_KEYS) if (prev[k] !== next[k]) return false
+  if (prev.detailFields.length !== next.detailFields.length || prev.detailFields.some((f, i) => f.id !== next.detailFields[i].id || f.label !== next.detailFields[i].label || f.value !== next.detailFields[i].value)) return false
   if (prev.assigneeIds.length !== next.assigneeIds.length || prev.assigneeIds.some((a, i) => a !== next.assigneeIds[i])) return false
   if (prev.progress.done !== next.progress.done || prev.progress.total !== next.progress.total) return false
   if (prev.children.length !== children.length || prev.children.some((c, i) => c !== children[i])) return false

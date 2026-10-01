@@ -9,13 +9,19 @@ interface AutosaveTextProps {
   validate?: (value: string) => boolean
   /** Enter saves instead of adding a new line; Esc reverts. */
   singleLine?: boolean
+  /**
+   * Multi-line only: Enter saves and moves to the next field with the same group (Shift+Enter = new line),
+   * like moving down a spreadsheet column. The last one just saves.
+   */
+  enterGroup?: string
+  maxLength?: number
   placeholder?: string
   className?: string
   'aria-label'?: string
 }
 
 /** Textarea that saves on blur — and on unmount, so closing the drawer never loses an edit. */
-export function AutosaveText({ id, serverValue, onSave, validate, singleLine, placeholder, className, 'aria-label': ariaLabel }: AutosaveTextProps) {
+export function AutosaveText({ id, serverValue, onSave, validate, singleLine, enterGroup, maxLength, placeholder, className, 'aria-label': ariaLabel }: AutosaveTextProps) {
   const [draft, setDraft] = useState(serverValue)
   const [base, setBase] = useState(serverValue)
   if (base !== serverValue) {
@@ -54,6 +60,15 @@ export function AutosaveText({ id, serverValue, onSave, validate, singleLine, pl
       onChange={(e) => setDraft(singleLine ? e.target.value.replace(/\n/g, ' ') : e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => {
+        if (enterGroup && !singleLine) {
+          if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return
+          e.preventDefault()
+          const all = [...document.querySelectorAll<HTMLElement>(`[data-enter-group="${CSS.escape(enterGroup)}"]`)]
+          const next = all[all.indexOf(e.currentTarget) + 1]
+          if (next) next.focus()
+          else e.currentTarget.blur()
+          return
+        }
         if (!singleLine) return
         if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
           e.preventDefault()
@@ -66,9 +81,10 @@ export function AutosaveText({ id, serverValue, onSave, validate, singleLine, pl
         }
       }}
       data-local-escape={singleLine ? '' : undefined}
+      data-enter-group={enterGroup}
       placeholder={placeholder}
       aria-label={ariaLabel}
-      maxLength={singleLine ? 200 : 4000}
+      maxLength={maxLength ?? (singleLine ? 200 : 4000)}
       rows={singleLine ? 1 : 3}
       className={className}
     />

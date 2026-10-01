@@ -101,6 +101,23 @@ export interface Proposal {
   completedAt: ISODateTime | null
 }
 
+/** How a task's details are written: free text, or a table of label → value rows. */
+export type DescriptionFormat = 'TEXT' | 'FIELDS'
+
+/** One row of a FIELDS-format task: a label the team defines and the data someone fills in ('' = not filled yet). */
+export interface DetailField {
+  id: string
+  label: string
+  value: string
+}
+
+/** A row in a request: no id = the server assigns one; no value = not filled yet. */
+export interface DetailFieldInput {
+  id?: string
+  label: string
+  value?: string
+}
+
 /** Task / Sub-task / Mini-task — a self-referencing tree, max depth 3. */
 export interface Task {
   id: string
@@ -108,7 +125,12 @@ export interface Task {
   parentId: string | null
   level: TaskLevel
   title: string
+  /** Free-text details (TEXT format). */
   description: string | null
+  /** Which of description / detailFields is the task's details. */
+  descriptionFormat: DescriptionFormat
+  /** Label → value rows (FIELDS format); [] otherwise. */
+  detailFields: DetailField[]
   startDate: ISODate | null
   dueDate: ISODate | null
   assigneeIds: string[]
