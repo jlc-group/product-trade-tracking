@@ -1,4 +1,4 @@
-import type { Channel, ProposalStatus, Role, TaskLevel, TaskPriority } from './types.js'
+import type { Channel, DescriptionFormat, ProposalStatus, Role, TaskLevel, TaskPriority } from './types.js'
 
 export const ROLE_LABEL: Record<Role, string> = {
   ADMIN: 'ผู้ดูแลระบบ (Admin)',
@@ -60,6 +60,11 @@ export const LEVEL_LABEL_TH: Record<TaskLevel, string> = {
 }
 
 export const MAX_TASK_LEVEL = 3
+
+export const DESCRIPTION_FORMAT_LABEL: Record<DescriptionFormat, string> = {
+  TEXT: 'ข้อความ',
+  FIELDS: 'ตาราง',
+}
 
 /** The identifier a person types to sign in: username first, then email. */
 export function signInName(user: { username: string | null; email: string | null }): string {

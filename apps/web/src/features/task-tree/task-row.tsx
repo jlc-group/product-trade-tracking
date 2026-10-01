@@ -1,4 +1,4 @@
-import { canToggleTask, LEVEL_LABEL, PRIORITY_LABEL, PRIORITY_ORDER, type ISODate, type TaskNode, type TaskPriority, type User } from '@flowtrade/shared'
+import { canToggleTask, detailFieldsProgress, LEVEL_LABEL, PRIORITY_LABEL, PRIORITY_ORDER, type ISODate, type TaskNode, type TaskPriority, type User } from '@flowtrade/shared'
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core'
 import {
   ArrowDownIcon,
@@ -12,6 +12,7 @@ import {
   MessageSquareIcon,
   PanelRightOpenIcon,
   PencilIcon,
+  TableIcon,
   Trash2Icon,
   UserPlusIcon,
 } from 'lucide-react'
@@ -123,6 +124,7 @@ export function TaskRow({ node, depth, parentStart, parentDue, expanded, isConte
             {node.progress.done}/{node.progress.total}
           </span>
         )}
+        {node.descriptionFormat === 'FIELDS' && node.detailFields.length > 0 && <DetailFieldsChip node={node} />}
         {commentCount > 0 && (
           <button
             type="button"
@@ -457,5 +459,28 @@ function RowMenu({
         )}
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+/** "3/8" data rows filled — opens the drawer. */
+function DetailFieldsChip({ node }: { node: TaskNode }) {
+  const { actions } = useTreeEnv()
+  const { filled, total } = detailFieldsProgress(node.detailFields)
+  return (
+    <button
+      type="button"
+      onClick={() => actions.openTask(node.id)}
+      aria-label={`กรอกข้อมูลแล้ว ${filled} จาก ${total} แถว`}
+      title={`กรอกข้อมูลแล้ว ${filled} จาก ${total} แถว`}
+      className={cn(
+        'inline-flex h-6 shrink-0 items-center gap-0.5 rounded px-1 text-xs outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50',
+        filled === total ? 'text-success' : 'text-muted-foreground hover:text-foreground',
+      )}
+    >
+      <TableIcon className="size-3.5" />
+      <span className="tabular">
+        {filled}/{total}
+      </span>
+    </button>
   )
 }

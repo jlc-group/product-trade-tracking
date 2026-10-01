@@ -1,16 +1,18 @@
 // Row → shared DTO mappers. Every API response uses the shapes in packages/shared/src/types.ts.
-import type {
-  ActivityLog,
-  AppNotification,
-  Comment,
-  Product,
-  Proposal,
-  ShelfType,
-  Store,
-  Task,
-  TaskLevel,
-  TaskTemplate,
-  User,
+import {
+  readDetailFields,
+  type ActivityLog,
+  type AppNotification,
+  type Comment,
+  type DetailField,
+  type Product,
+  type Proposal,
+  type ShelfType,
+  type Store,
+  type Task,
+  type TaskLevel,
+  type TaskTemplate,
+  type User,
 } from '@flowtrade/shared'
 import type { Prisma } from '../generated/prisma/client.js'
 import { iso, isoOrNull, toDateOnly } from './dates.js'
@@ -34,6 +36,9 @@ export type UserRow = Prisma.UserGetPayload<object>
 export type ProposalRow = Prisma.ProposalGetPayload<{ include: typeof proposalInclude }>
 export type TaskRow = Prisma.TaskGetPayload<{ include: typeof taskInclude }>
 export type TemplateRow = Prisma.TaskTemplateGetPayload<{ include: typeof templateInclude }>
+
+/** Detail rows as stored in tasks.detail_fields (JSONB). */
+export const detailFieldsJson = (fields: DetailField[]): Prisma.InputJsonValue => fields.map(({ id, label, value }) => ({ id, label, value }))
 
 // ---------- mappers ----------
 
@@ -96,6 +101,8 @@ export function toTask(t: TaskRow): Task {
     level: t.level as TaskLevel,
     title: t.title,
     description: t.description,
+    descriptionFormat: t.descriptionFormat,
+    detailFields: readDetailFields(t.detailFields),
     startDate: toDateOnly(t.startDate),
     dueDate: toDateOnly(t.dueDate),
     assigneeIds: t.assignees.map((a) => a.userId),

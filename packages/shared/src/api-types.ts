@@ -3,6 +3,8 @@ import type {
   ActivityLog,
   Channel,
   Comment,
+  DescriptionFormat,
+  DetailFieldInput,
   ISODate,
   Product,
   Proposal,
@@ -151,6 +153,19 @@ export interface CreateTaskInput {
 export interface UpdateTaskInput {
   title?: string
   description?: string | null
+  /** Managers only. Switching format does not convert content — send the converted description / detailFields too. */
+  descriptionFormat?: DescriptionFormat
+  // Table rows (see applyDetailPatch for the order they are applied in). Everything except detailValues is managers only.
+  /** Replaces every row (labels, order, values). A row without id gets a new one. */
+  detailFields?: DetailFieldInput[]
+  /** Adds rows after the latest rows. */
+  detailAppend?: DetailFieldInput[]
+  /** Renames rows by id. */
+  detailLabels?: Record<string, string>
+  /** Removes rows by id (ids already gone are ignored). */
+  detailRemove?: string[]
+  /** Fills values of existing rows by id; other rows are untouched. Managers and the task's assignees. */
+  detailValues?: Record<string, string>
   startDate?: ISODate | null
   dueDate?: ISODate | null
   assigneeIds?: string[]

@@ -1,7 +1,8 @@
 // TanStack Query hooks — the only way pages read/write data.
-import { computeProgress, computeToggle, type Channel, type Department, type Product, type ProposalStatus, type ShelfType, type Store, type Task, type TaskTemplate, type User } from '@flowtrade/shared'
+import { applyDetailPatch, computeProgress, computeToggle, type Channel, type Department, type Product, type ProposalStatus, type ShelfType, type Store, type Task, type TaskTemplate, type User } from '@flowtrade/shared'
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { uuid } from '@/lib/id'
 import { api, ApiError } from './index'
 import type {
   CreateProposalInput,
@@ -255,6 +256,13 @@ export function useCreateTask() {
   return useMutation({ mutationFn: (input: CreateTaskInput) => api.tasks.create(input), onSuccess: (_t, v) => invalidateWork(qc, v.proposalId), onError })
 }
 
+/** The server's PATCH /tasks/:id rules, for the optimistic copy (new rows always carry client ids). */
+function applyTaskPatch(t: Task, patch: UpdateTaskInput): Task {
+  const { detailFields, detailAppend, detailLabels, detailRemove, detailValues, ...rest } = patch
+  const rows = applyDetailPatch(t.detailFields, { detailFields, detailAppend, detailLabels, detailRemove, detailValues }, uuid).fields
+  return { ...t, ...rest, detailFields: rows }
+}
+
 export function useUpdateTask(proposalId: string) {
   const qc = useQueryClient()
   return useMutation({
@@ -262,7 +270,7 @@ export function useUpdateTask(proposalId: string) {
     onMutate: async ({ id, patch }) => {
       await qc.cancelQueries({ queryKey: qk.tasks(proposalId) })
       const previous = qc.getQueryData<Task[]>(qk.tasks(proposalId))
-      qc.setQueryData<Task[]>(qk.tasks(proposalId), (old) => old?.map((t) => (t.id === id ? { ...t, ...patch } : t)))
+      qc.setQueryData<Task[]>(qk.tasks(proposalId), (old) => old?.map((t) => (t.id === id ? applyTaskPatch(t, patch) : t)))
       return { previous }
     },
     onError: (error, _v, ctx) => {

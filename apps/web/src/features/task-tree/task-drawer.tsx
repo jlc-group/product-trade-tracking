@@ -20,6 +20,7 @@ import { DateRangeFields } from './date-range-popover'
 import { DepartmentChip, DepartmentInput } from './department'
 import { InlineAdd } from './inline-add'
 import { TaskComments } from './task-comments'
+import { TaskDetails } from './task-details'
 import { useTreeEnv } from './tree-context'
 import { childLabel, LEVEL_DOT } from './tree-utils'
 import type { TreeData } from './use-tree-state'
@@ -152,7 +153,7 @@ function DrawerBody({ node, tree, focusComments }: { node: TaskNode; tree: TreeD
           <PriorityField node={node} editable={canManage} />
         </section>
 
-        <DescriptionField node={node} editable={canEditDetails} />
+        <TaskDetails node={node} canManage={canManage} canFill={canEditDetails} />
 
         {node.level < 3 && <ChildrenSection node={node} />}
 
@@ -182,7 +183,7 @@ function DrawerBody({ node, tree, focusComments }: { node: TaskNode; tree: TreeD
             <p title={formatDateTime(node.updatedAt)}>แก้ไขล่าสุด {fromNow(node.updatedAt)}</p>
             {!canManage && (
               <p className="pt-1">
-                {canEditDetails ? 'คุณเป็นผู้รับผิดชอบงานนี้ — แก้ไขรายละเอียดและวันที่ได้ ส่วนชื่องาน แผนก และผู้รับผิดชอบให้ทีมงานโปรเจกต์เป็นผู้แก้' : 'คุณดูงานนี้ได้อย่างเดียว — แสดงความคิดเห็นได้ตามปกติ'}
+                {canEditDetails ? 'คุณเป็นผู้รับผิดชอบงานนี้ — แก้ไขรายละเอียด กรอกข้อมูลในตาราง และแก้วันที่ได้ ส่วนชื่องาน แผนก ผู้รับผิดชอบ และหัวข้อในตาราง ให้ทีมงานโปรเจกต์เป็นผู้แก้' : 'คุณดูงานนี้ได้อย่างเดียว — แสดงความคิดเห็นได้ตามปกติ'}
               </p>
             )}
           </div>
@@ -351,32 +352,6 @@ function PriorityField({ node, editable }: { node: TaskNode; editable: boolean }
           ))}
         </SelectContent>
       </Select>
-    </div>
-  )
-}
-
-function DescriptionField({ node, editable }: { node: TaskNode; editable: boolean }) {
-  const { actions } = useTreeEnv()
-  const id = useId()
-  if (!editable) {
-    return (
-      <ReadOnlyField label="รายละเอียด">
-        {node.description ? <p className="break-words whitespace-pre-wrap">{node.description}</p> : <span className="text-muted-foreground">ไม่มีรายละเอียด</span>}
-      </ReadOnlyField>
-    )
-  }
-  return (
-    <div className="space-y-1.5">
-      <Label htmlFor={id} className="text-xs text-muted-foreground">
-        รายละเอียด
-      </Label>
-      <AutosaveText
-        id={id}
-        serverValue={node.description ?? ''}
-        onSave={(text) => actions.update(node.id, { description: text || null }, 'บันทึกรายละเอียดแล้ว')}
-        placeholder="เพิ่มรายละเอียด เช่น เอกสารที่ต้องเตรียม ผู้ติดต่อฝั่งห้าง หรือเงื่อนไขพิเศษ (บันทึกอัตโนมัติเมื่อคลิกออก)"
-        className="min-h-24 bg-background"
-      />
     </div>
   )
 }

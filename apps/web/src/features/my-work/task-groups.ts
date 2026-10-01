@@ -87,7 +87,7 @@ export function groupByProject(items: TaskWithContext[], isDone: (item: TaskWith
 export function matchesQuery(item: TaskWithContext, q: string) {
   const needle = q.trim().toLowerCase()
   if (!needle) return true
-  return [item.task.title, item.task.description ?? '', item.task.responsible ?? '', ...item.path, item.proposal.title, item.proposal.code, item.store.name, item.store.shortName]
+  return [item.task.title, item.task.description ?? '', ...item.task.detailFields.flatMap((f) => [f.label, f.value]), item.task.responsible ?? '', ...item.path, item.proposal.title, item.proposal.code, item.store.name, item.store.shortName]
     .join('\n')
     .toLowerCase()
     .includes(needle)
