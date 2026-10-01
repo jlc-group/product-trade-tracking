@@ -1,0 +1,22 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log
+coverage/
+
+# First-login credentials written by db:reset-empty / db:bootstrap
+.admin-initial-password
+
+# Snapshot build used to keep the dev API up while code is mid-edit
+apps/api/.dist-stable/
+
+# Prisma client is generated (npm install → postinstall → prisma generate)
+apps/api/src/generated/
+
+# Local scratch / editor
+.vscode/
+.idea/

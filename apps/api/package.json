@@ -1,0 +1,44 @@
+{
+  "name": "@flowtrade/api",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "rm -rf dist && prisma generate && tsc -p tsconfig.build.json",
+    "dev": "tsc-watch -p tsconfig.build.json --onSuccess \"node --enable-source-maps dist/main.js\"",
+    "start": "node --enable-source-maps dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prisma:generate": "prisma generate",
+    "db:migrate": "prisma migrate deploy",
+    "db:status": "prisma migrate status",
+    "test:e2e": "node test/e2e.mjs",
+    "db:bootstrap": "node --enable-source-maps dist/seed/bootstrap.js",
+    "db:reset-empty": "node --enable-source-maps dist/seed/reset-empty.js",
+    "db:default-template": "node --enable-source-maps dist/seed/default-template.js",
+    "postinstall": "prisma generate"
+  },
+  "dependencies": {
+    "@flowtrade/shared": "*",
+    "@nestjs/common": "^12.1.2",
+    "@nestjs/core": "^12.1.2",
+    "@nestjs/platform-express": "^12.1.2",
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
+    "argon2": "^0.45.1",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^18.0.5",
+    "pg": "^8.23.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.10",
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.19.0",
+    "@types/pg": "^8.23.1",
+    "prisma": "^7.10.0",
+    "tsc-watch": "^7.2.1",
+    "typescript": "~6.0.2"
+  }
+}

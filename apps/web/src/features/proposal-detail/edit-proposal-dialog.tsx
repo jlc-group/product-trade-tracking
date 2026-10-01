@@ -1,0 +1,247 @@
+import { can, CHANNEL_TERMS, type User } from '@flowtrade/shared'
+import { Loader2Icon, LockIcon, UserPlusIcon } from 'lucide-react'
+import { useState, type FormEvent } from 'react'
+import { toast } from 'sonner'
+import type { ProposalDetail, UpdateProposalInput } from '@/api'
+import { useShelfTypes, useUpdateProposal, useUserLookup } from '@/api/hooks'
+import { useCurrentUser } from '@/auth/auth'
+import { AvatarStack, UserAvatar } from '@/components/common/user-avatar'
+import { UserPicker } from '@/components/common/user-picker'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
+import { displayName } from '@/lib/format'
+import { ProductMultiSelect } from './product-multi-select'
+import { sameSet } from './utils'
+
+interface Props {
+  proposal: ProposalDetail
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}
+
+export function EditProposalDialog({ proposal, open, onOpenChange }: Props) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg">
+        <EditForm proposal={proposal} onDone={() => onOpenChange(false)} />
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function EditForm({ proposal, onDone }: { proposal: ProposalDetail; onDone: () => void }) {
+  const me = useCurrentUser()
+  const canChangeOwner = can(me, 'proposal.update.any')
+  const terms = CHANNEL_TERMS[proposal.channel]
+  const update = useUpdateProposal()
+  const { data: activeUsers = [] } = useUserLookup()
+  const { data: shelfTypes = [] } = useShelfTypes()
+
+  const [title, setTitle] = useState(proposal.title)
+  const [note, setNote] = useState(proposal.note ?? '')
+  const [shelfTypeId, setShelfTypeId] = useState(proposal.shelfTypeId)
+  const [productIds, setProductIds] = useState(proposal.productIds)
+  const [ownerId, setOwnerId] = useState(proposal.ownerId)
+  const [memberIds, setMemberIds] = useState(proposal.memberIds)
+  const [submitted, setSubmitted] = useState(false)
+
+  const usersById = new Map<string, User>()
+  for (const u of [proposal.owner, ...proposal.members, ...activeUsers]) usersById.set(u.id, u)
+  const owner = usersById.get(ownerId)
+  const visibleMemberIds = memberIds.filter((id) => id !== ownerId)
+  const members = visibleMemberIds.map((id) => usersById.get(id)).filter((u): u is User => !!u)
+
+  const channelShelves = shelfTypes.filter((s) => s.channel === proposal.channel)
+  const shelfOptions = channelShelves.some((s) => s.id === proposal.shelfTypeId) ? channelShelves : [proposal.shelfType, ...channelShelves]
+
+  const ownerChanged = ownerId !== proposal.ownerId
+  const previousOwnerActive = activeUsers.some((u) => u.id === proposal.ownerId)
+  const membersChanged = ownerChanged || !sameSet(visibleMemberIds, proposal.memberIds)
+  const dirty =
+    title.trim() !== proposal.title ||
+    (note.trim() || null) !== proposal.note ||
+    shelfTypeId !== proposal.shelfTypeId ||
+    !sameSet(productIds, proposal.productIds) ||
+    membersChanged
+
+  const titleError = submitted && !title.trim() ? 'กรุณาตั้งชื่อการเสนอ เช่น “ชื่อสินค้า → ชื่อห้าง”' : null
+  const productError = productIds.length === 0 ? 'ต้องมีสินค้าอย่างน้อย 1 รายการ — เลือกเพิ่มจากรายการด้านบน' : null
+
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    setSubmitted(true)
+    if (!title.trim() || productIds.length === 0) return
+    const patch: UpdateProposalInput = {
+      title: title.trim(),
+      note: note.trim() || null,
+      productIds,
+    }
+    if (shelfTypeId !== proposal.shelfTypeId) patch.shelfTypeId = shelfTypeId
+    if (membersChanged) {
+      const active = new Set(activeUsers.map((u) => u.id))
+      let next = visibleMemberIds
+      // Keep the previous owner on the team so they don't lose access.
+      if (ownerChanged && previousOwnerActive && !next.includes(proposal.ownerId)) next = [...next, proposal.ownerId]
+      // Deactivated accounts can't be (re)saved as members.
+      patch.memberIds = active.size ? next.filter((id) => active.has(id)) : next
+    }
+    if (canChangeOwner && ownerChanged) patch.ownerId = ownerId
+    try {
+      await update.mutateAsync({ id: proposal.id, patch })
+      toast.success('บันทึกการแก้ไขแล้ว')
+      onDone()
+    } catch {
+      // error already toasted by the hook
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="grid gap-4" noValidate>
+      <DialogHeader>
+        <DialogTitle>แก้ไขข้อมูลการเสนอสินค้า</DialogTitle>
+        <DialogDescription>
+          {proposal.code} · {proposal.store.name} — ต้องการเปลี่ยนวันใช้ปุ่ม “เลื่อนวัน” แทน
+        </DialogDescription>
+      </DialogHeader>
+
+      <div className="grid gap-2">
+        <Label htmlFor="edit-title">ชื่อการเสนอ</Label>
+        <Input
+          id="edit-title"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          aria-invalid={!!titleError || undefined}
+          aria-describedby={titleError ? 'edit-title-error' : undefined}
+          maxLength={160}
+        />
+        {titleError && (
+          <p id="edit-title-error" className="text-xs text-danger">
+            {titleError}
+          </p>
+        )}
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="edit-shelf">{terms.shelf}</Label>
+        <Select value={shelfTypeId} onValueChange={setShelfTypeId}>
+          <SelectTrigger id="edit-shelf" className="h-9 w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent position="popper">
+            {shelfOptions.map((s) => (
+              <SelectItem key={s.id} value={s.id}>
+                <span className="size-2 shrink-0 rounded-sm" style={{ backgroundColor: s.color }} aria-hidden />
+                {s.name}
+                {!s.isActive && <span className="text-xs text-muted-foreground">(ปิดใช้งานแล้ว)</span>}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="edit-products">สินค้า</Label>
+        <ProductMultiSelect
+          id="edit-products"
+          value={productIds}
+          onChange={setProductIds}
+          knownProducts={proposal.products}
+          invalid={!!productError}
+          describedBy={productError ? 'edit-products-error' : undefined}
+        />
+        {productError && (
+          <p id="edit-products-error" className="text-xs text-danger">
+            {productError}
+          </p>
+        )}
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid content-start gap-2">
+          <Label htmlFor={canChangeOwner ? 'edit-owner' : undefined}>เจ้าของ</Label>
+          {canChangeOwner ? (
+            <UserPicker
+              single
+              value={[ownerId]}
+              onChange={(ids) => ids[0] && setOwnerId(ids[0])}
+              trigger={
+                <Button id="edit-owner" type="button" variant="outline" className="h-9 w-full justify-start gap-2 px-2.5 font-normal">
+                  {owner ? <UserAvatar user={owner} size="xs" tooltip={false} /> : null}
+                  <span className="truncate">{owner ? displayName(owner) : 'เลือกเจ้าของ'}</span>
+                </Button>
+              }
+            />
+          ) : (
+            <div id="edit-owner" className="flex h-9 items-center gap-2 rounded-lg border bg-muted/40 px-2.5 text-sm">
+              {owner && <UserAvatar user={owner} size="xs" tooltip={false} />}
+              <span className="min-w-0 flex-1 truncate">{owner ? displayName(owner) : '—'}</span>
+              <LockIcon className="size-3.5 text-muted-foreground" aria-hidden />
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">
+            {!canChangeOwner
+              ? 'เฉพาะผู้จัดการหรือ Admin ที่เปลี่ยนเจ้าของได้'
+              : ownerChanged && previousOwnerActive
+                ? `${proposal.owner.name} จะยังอยู่ในทีมงาน`
+                : 'เจ้าของดูแลภาพรวมและเปลี่ยนสถานะได้'}
+          </p>
+        </div>
+
+        <div className="grid content-start gap-2">
+          <Label htmlFor="edit-members">ทีมงาน</Label>
+          <UserPicker
+            value={visibleMemberIds}
+            onChange={setMemberIds}
+            excludeIds={[ownerId]}
+            trigger={
+              <Button id="edit-members" type="button" variant="outline" className="h-9 w-full justify-start gap-2 px-2.5 font-normal">
+                {members.length ? (
+                  <>
+                    <AvatarStack users={members} max={4} size="xs" />
+                    <span className="truncate">{members.length === 1 ? members[0].name : `${members.length} คน`}</span>
+                  </>
+                ) : (
+                  <>
+                    <UserPlusIcon className="text-muted-foreground" />
+                    <span className="text-muted-foreground">เพิ่มทีมงาน</span>
+                  </>
+                )}
+              </Button>
+            }
+          />
+          <p className="text-xs text-muted-foreground">ทีมงานเพิ่ม แก้ไข และติ๊กงานได้ทุกงาน</p>
+        </div>
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="edit-note">
+          หมายเหตุ <span className="font-normal text-muted-foreground">(ไม่บังคับ)</span>
+        </Label>
+        <Textarea
+          id="edit-note"
+          rows={3}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="เช่น เงื่อนไขพิเศษจากห้าง ชื่อผู้ติดต่อฝั่งห้าง หรือสิ่งที่ทีมควรรู้"
+          maxLength={1000}
+        />
+      </div>
+
+      <DialogFooter>
+        <DialogClose asChild>
+          <Button type="button" variant="outline">
+            ยกเลิก
+          </Button>
+        </DialogClose>
+        <Button type="submit" disabled={!dirty || update.isPending}>
+          {update.isPending && <Loader2Icon className="animate-spin" />}
+          บันทึกการแก้ไข
+        </Button>
+      </DialogFooter>
+    </form>
+  )
+}

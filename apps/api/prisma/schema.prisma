@@ -1,0 +1,397 @@
+// FlowTrade data model — Prisma 7, PostgreSQL.
+// Every table lives in the schema named by DB_SCHEMA (default "flowtrade"); see prisma.config.ts.
+// Field names mirror packages/shared/src/types.ts so API responses map 1:1 to the frontend types.
+// Constraints Prisma cannot express (CHECKs, case-insensitive uniques) are added in the migration SQL.
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  USER
+}
+
+enum Channel {
+  OFFLINE
+  ONLINE
+}
+
+enum ProposalStatus {
+  DRAFT
+  IN_PROGRESS
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum EntityType {
+  PROPOSAL
+  TASK
+  STORE
+  SHELF_TYPE
+  PRODUCT
+  USER
+  TEMPLATE
+  DEPARTMENT
+}
+
+enum NotificationType {
+  TASK_ASSIGNED
+  TASK_DUE_SOON
+  TASK_OVERDUE
+  PROPOSAL_STATUS
+  COMMENT
+}
+
+model User {
+  id                 String    @id @default(uuid()) @db.Uuid
+  /// Optional, stored lower-case. A user needs an email or a username (CHECK in migration).
+  email              String?   @unique
+  /// Short sign-in name (stored lower-case), e.g. "admin". Login accepts email or username.
+  username           String?   @unique
+  name               String
+  nickname           String?
+  /// One of the admin-managed department names (FK on departments.name, renames cascade).
+  department         String?
+  position           String?
+  role               Role      @default(USER)
+  isActive           Boolean   @default(true) @map("is_active")
+  mustChangePassword Boolean   @default(true) @map("must_change_password")
+  passwordHash       String    @map("password_hash")
+  avatarColor        String    @default("#2563eb") @map("avatar_color")
+  failedLoginCount   Int       @default(0) @map("failed_login_count")
+  lockedUntil        DateTime? @map("locked_until") @db.Timestamptz(3)
+  lastLoginAt        DateTime? @map("last_login_at") @db.Timestamptz(3)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  departmentRef  Department?      @relation(fields: [department], references: [name], onDelete: Restrict, onUpdate: Cascade)
+  sessions       Session[]
+  ownedProposals Proposal[]       @relation("ProposalOwner")
+  memberships    ProposalMember[]
+  assignments    TaskAssignee[]
+  createdTasks   Task[]           @relation("TaskCreatedBy")
+  completedTasks Task[]           @relation("TaskCompletedBy")
+  comments       Comment[]
+  activity       ActivityLog[]
+  notifications  Notification[]
+
+  @@map("users")
+}
+
+/// Company departments — the only values allowed for users.department (admins manage the list).
+model Department {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique
+  sortOrder Int      @default(0) @map("sort_order")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  users User[]
+
+  @@map("departments")
+}
+
+/// Server-side session; only the SHA-256 hash of the cookie token is stored.
+model Session {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  tokenHash         String    @unique @map("token_hash")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastSeenAt        DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  expiresAt         DateTime  @map("expires_at") @db.Timestamptz(3)
+  absoluteExpiresAt DateTime  @map("absolute_expires_at") @db.Timestamptz(3)
+  ip                String?
+  userAgent         String?   @map("user_agent")
+  revokedAt         DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+/// Retailer (offline) or marketplace/platform (online).
+model Store {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  shortName   String   @map("short_name")
+  channel     Channel
+  color       String
+  description String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  proposals Proposal[]
+  templates TaskTemplate[]
+
+  @@index([channel, sortOrder])
+  @@map("stores")
+}
+
+/// Shelf type (offline) or listing type (online).
+model ShelfType {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  channel     Channel
+  color       String
+  description String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  proposals Proposal[]
+  templates TaskTemplate[]
+
+  @@index([channel, sortOrder])
+  @@map("shelf_types")
+}
+
+model Product {
+  id        String   @id @default(uuid()) @db.Uuid
+  /// Stored upper-case.
+  sku       String   @unique
+  name      String
+  brand     String
+  category  String
+  barcode   String?
+  size      String?
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  proposals ProposalProduct[]
+
+  @@map("products")
+}
+
+/// One listing project: products → one store → one shelf type → target on-shelf date.
+model Proposal {
+  id          String         @id @default(uuid()) @db.Uuid
+  /// PRJ-<year>-<0001>, generated from proposal_counters.
+  code        String         @unique
+  title       String
+  channel     Channel
+  storeId     String         @map("store_id") @db.Uuid
+  shelfTypeId String         @map("shelf_type_id") @db.Uuid
+  /// Business date (Asia/Bangkok).
+  targetDate  DateTime       @map("target_date") @db.Date
+  status      ProposalStatus @default(IN_PROGRESS)
+  ownerId     String         @map("owner_id") @db.Uuid
+  templateId  String?        @map("template_id") @db.Uuid
+  note        String?
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  completedAt DateTime?      @map("completed_at") @db.Timestamptz(3)
+
+  store     Store             @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  shelfType ShelfType         @relation(fields: [shelfTypeId], references: [id], onDelete: Restrict)
+  owner     User              @relation("ProposalOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  template  TaskTemplate?     @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  members   ProposalMember[]
+  products  ProposalProduct[]
+  tasks     Task[]
+  comments  Comment[]
+  activity  ActivityLog[]
+
+  @@index([status, targetDate])
+  @@index([storeId])
+  @@index([ownerId])
+  @@map("proposals")
+}
+
+model ProposalMember {
+  proposalId String   @map("proposal_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  addedAt    DateTime @default(now()) @map("added_at") @db.Timestamptz(3)
+
+  proposal Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@id([proposalId, userId])
+  @@index([userId])
+  @@map("proposal_members")
+}
+
+model ProposalProduct {
+  proposalId String @map("proposal_id") @db.Uuid
+  productId  String @map("product_id") @db.Uuid
+  sortOrder  Int    @default(0) @map("sort_order")
+
+  proposal Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@id([proposalId, productId])
+  @@index([productId])
+  @@map("proposal_products")
+}
+
+/// Per-year running number for proposal codes (row-locked increment).
+model ProposalCounter {
+  year      Int @id
+  lastValue Int @default(0) @map("last_value")
+
+  @@map("proposal_counters")
+}
+
+/// Task / Sub task / Mini task — adjacency list, max depth 3 (CHECK in migration).
+model Task {
+  id            String       @id @default(uuid()) @db.Uuid
+  proposalId    String       @map("proposal_id") @db.Uuid
+  parentId      String?      @map("parent_id") @db.Uuid
+  level         Int          @db.SmallInt
+  title         String
+  description   String?
+  startDate     DateTime?    @map("start_date") @db.Date
+  dueDate       DateTime?    @map("due_date") @db.Date
+  /// Responsible department / team, e.g. "NPD" (free text).
+  responsible   String?
+  priority      TaskPriority @default(MEDIUM)
+  isDone        Boolean      @default(false) @map("is_done")
+  completedAt   DateTime?    @map("completed_at") @db.Timestamptz(3)
+  completedById String?      @map("completed_by_id") @db.Uuid
+  sortOrder     Int          @default(0) @map("sort_order")
+  createdById   String       @map("created_by_id") @db.Uuid
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  proposal    Proposal       @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  parent      Task?          @relation("TaskTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children    Task[]         @relation("TaskTree")
+  completedBy User?          @relation("TaskCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+  createdBy   User           @relation("TaskCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  assignees   TaskAssignee[]
+  comments    Comment[]
+
+  @@index([proposalId, parentId, sortOrder])
+  @@index([isDone, dueDate])
+  @@map("tasks")
+}
+
+model TaskAssignee {
+  taskId     String   @map("task_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  assignedAt DateTime @default(now()) @map("assigned_at") @db.Timestamptz(3)
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@id([taskId, userId])
+  @@index([userId])
+  @@map("task_assignees")
+}
+
+model TaskTemplate {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  description String?
+  /// null = every channel (offline and online).
+  channel     Channel?
+  /// null = every shelf type of the channel.
+  shelfTypeId String?  @map("shelf_type_id") @db.Uuid
+  /// null = every store of the channel.
+  storeId     String?  @map("store_id") @db.Uuid
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  shelfType ShelfType?         @relation(fields: [shelfTypeId], references: [id], onDelete: SetNull)
+  store     Store?             @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  items     TaskTemplateItem[]
+  proposals Proposal[]
+
+  @@map("task_templates")
+}
+
+model TaskTemplateItem {
+  id              String  @id @default(uuid()) @db.Uuid
+  templateId      String  @map("template_id") @db.Uuid
+  parentId        String? @map("parent_id") @db.Uuid
+  level           Int     @db.SmallInt
+  title           String
+  /// Days relative to the proposal's target date (negative = before launch).
+  startOffsetDays Int     @map("start_offset_days")
+  dueOffsetDays   Int     @map("due_offset_days")
+  responsible     String?
+  sortOrder       Int     @default(0) @map("sort_order")
+
+  template TaskTemplate       @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  parent   TaskTemplateItem?  @relation("TemplateTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children TaskTemplateItem[] @relation("TemplateTree")
+
+  @@index([templateId, sortOrder])
+  @@map("task_template_items")
+}
+
+model Comment {
+  id         String   @id @default(uuid()) @db.Uuid
+  proposalId String   @map("proposal_id") @db.Uuid
+  taskId     String?  @map("task_id") @db.Uuid
+  authorId   String   @map("author_id") @db.Uuid
+  body       String
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  proposal Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  task     Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author   User     @relation(fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([taskId, createdAt])
+  @@index([proposalId])
+  @@map("comments")
+}
+
+/// Append-only audit trail.
+model ActivityLog {
+  id         String     @id @default(uuid()) @db.Uuid
+  actorId    String     @map("actor_id") @db.Uuid
+  action     String
+  entityType EntityType @map("entity_type")
+  /// Not a foreign key: the entity may have been deleted.
+  entityId   String     @map("entity_id")
+  proposalId String?    @map("proposal_id") @db.Uuid
+  summary    String
+  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  actor    User      @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  proposal Proposal? @relation(fields: [proposalId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt(sort: Desc)])
+  @@index([proposalId, createdAt(sort: Desc)])
+  @@map("activity_logs")
+}
+
+model Notification {
+  id        String           @id @default(uuid()) @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  type      NotificationType
+  title     String
+  body      String
+  link      String?
+  isRead    Boolean          @default(false) @map("is_read")
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead, createdAt(sort: Desc)])
+  @@map("notifications")
+}

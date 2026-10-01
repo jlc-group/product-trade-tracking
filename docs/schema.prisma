@@ -1,0 +1,734 @@
+// ============================================================================
+// TARGET DESIGN — NOT the schema the running system uses.
+// The implemented schema is apps/api/prisma/schema.prisma (+ its migrations).
+// ============================================================================
+// =====================================================================================
+// FlowTrade — schema.prisma (FINAL, Phase 1 / MVP)
+// Target: Prisma ORM 7.x (pin EXACT 7.10.0 — npm "latest" now points to 8.0.0-rc) · PostgreSQL 18
+// Requires Prisma >= 7.4 for previewFeatures = ["partialIndexes"].
+// Connection URL lives in apps/api/prisma.config.ts (Prisma 7: no `url` in datasource).
+// Validated with: prisma@7.10.0 validate + format (see docs/03-database.md §0).
+//
+// Naming: models/fields = canonical glossary (01-requirements-flow.md §8);
+//         tables/columns = snake_case via @@map/@map.
+// Constraints Prisma cannot express (CHECK, triggers, functions) live in migration
+// `20261001000100_constraints_and_triggers` — full SQL in docs/03-database.md §6.2.
+// Every uuid PK is generated client-side (uuid v7) → raw INSERTs MUST supply `id`.
+// =====================================================================================
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+  previewFeatures     = ["partialIndexes"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────── Enums (canonical, glossary §8.3) ───────────────────────────────
+
+enum Role {
+  ADMIN
+  MANAGER
+  USER
+
+  @@map("role")
+}
+
+enum Channel {
+  OFFLINE
+  ONLINE
+
+  @@map("channel")
+}
+
+enum ProposalStatus {
+  DRAFT
+  IN_PROGRESS
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+
+  @@map("proposal_status")
+}
+
+enum CancelReason {
+  BUYER_REJECTED
+  INTERNAL_DECISION
+  DUPLICATE
+  OTHER
+
+  @@map("cancel_reason")
+}
+
+enum ProposalProductStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+
+  @@map("proposal_product_status")
+}
+
+enum ProposalMemberRole {
+  EDITOR
+  VIEWER
+
+  @@map("proposal_member_role")
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+
+  @@map("task_status")
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+
+  @@map("task_priority")
+}
+
+enum TargetType {
+  PROPOSAL
+  TASK
+
+  @@map("target_type")
+}
+
+enum AttachmentKind {
+  FILE
+  LINK
+
+  @@map("attachment_kind")
+}
+
+enum DateEra {
+  BE
+  CE
+
+  @@map("date_era")
+}
+
+enum NotificationType {
+  TASK_ASSIGNED
+  TASK_DUE_SOON
+  TASK_OVERDUE
+  TASK_COMPLETED
+  TASK_REOPENED
+  TASK_DATES_SHIFTED
+  COMMENT_MENTION
+  COMMENT_ADDED
+  PROPOSAL_STATUS_CHANGED
+  PROPOSAL_MEMBER_ADDED
+  PROPOSAL_OWNER_CHANGED
+  STORE_REQUEST
+
+  @@map("notification_type")
+}
+
+enum ActivityAction {
+  CREATE
+  UPDATE
+  DELETE
+  RESTORE
+  STATUS_CHANGE
+  COMPLETE
+  REOPEN
+  ASSIGN
+  UNASSIGN
+  MOVE
+  DATE_SHIFT
+  TEMPLATE_APPLY
+  MEMBER_ADD
+  MEMBER_REMOVE
+  OWNER_TRANSFER
+  DUPLICATE_OVERRIDE
+  COMMENT_ADD
+  ATTACHMENT_ADD
+  ATTACHMENT_REMOVE
+  LOGIN_SUCCESS
+  LOGIN_FAILED
+  LOGOUT
+  PASSWORD_CHANGE
+  PASSWORD_RESET
+  ROLE_CHANGE
+  USER_DEACTIVATE
+  USER_ACTIVATE
+  /// (เพิ่ม) export Excel ของรายงาน/audit — entityType = REPORT, entityId = null
+  EXPORT
+
+  @@map("activity_action")
+}
+
+enum AuditEntityType {
+  USER
+  STORE
+  SHELF_TYPE
+  PRODUCT
+  TASK_TEMPLATE
+  PROPOSAL
+  PROPOSAL_PRODUCT
+  PROPOSAL_MEMBER
+  TASK
+  COMMENT
+  ATTACHMENT
+  APP_SETTING
+  /// (เพิ่ม) ใช้คู่กับ action EXPORT
+  REPORT
+
+  @@map("audit_entity_type")
+}
+
+// ── Additions (not in glossary; see 03-database.md §0.4) ──
+
+/// ฝ่ายที่แนะนำให้รับผิดชอบ (domain doc §4) — ใช้แสดงคำแนะนำเท่านั้น ไม่ใช่การมอบหมาย
+enum ResponsibleFunction {
+  TRD
+  MKT
+  SCM
+  QA
+  FIN
+  ART
+  MGR
+
+  @@map("responsible_function")
+}
+
+enum SessionRevokeReason {
+  LOGOUT
+  PASSWORD_CHANGE
+  PASSWORD_RESET
+  ROLE_CHANGE
+  USER_DEACTIVATE
+  ADMIN_REVOKE
+
+  @@map("session_revoke_reason")
+}
+
+// ─────────────────────────────── Identity & auth ───────────────────────────────
+
+model User {
+  id                 String    @id @default(uuid(7)) @db.Uuid
+  /// เก็บเป็นตัวพิมพ์เล็กเสมอ (CHECK users_email_lowercase) → unique แบบไม่สนตัวพิมพ์
+  email              String    @unique @db.VarChar(255)
+  passwordHash       String    @map("password_hash") @db.VarChar(255)
+  fullName           String    @map("full_name") @db.VarChar(150)
+  nickname           String?   @db.VarChar(50)
+  position           String?   @db.VarChar(100)
+  phone              String?   @db.VarChar(20)
+  avatarUrl          String?   @map("avatar_url") @db.VarChar(500)
+  role               Role      @default(USER)
+  isActive           Boolean   @default(true) @map("is_active")
+  mustChangePassword Boolean   @default(true) @map("must_change_password")
+  /// (เพิ่ม) วันหมดอายุของรหัสผ่านชั่วคราว (now+72h ตอนสร้าง/รีเซ็ต) · ล้างเป็น null เมื่อผู้ใช้ตั้งรหัสเอง
+  passwordExpiresAt  DateTime? @map("password_expires_at") @db.Timestamptz(3)
+  dateEra            DateEra?  @map("date_era")
+  emailDigestEnabled Boolean   @default(true) @map("email_digest_enabled")
+  failedLoginCount   Int       @default(0) @map("failed_login_count")
+  lockedUntil        DateTime? @map("locked_until") @db.Timestamptz(3)
+  lastLoginAt        DateTime? @map("last_login_at") @db.Timestamptz(3)
+  createdById        String?   @map("created_by_id") @db.Uuid
+  deactivatedAt      DateTime? @map("deactivated_at") @db.Timestamptz(3)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  createdBy    User?  @relation("UserCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdUsers User[] @relation("UserCreatedBy")
+
+  sessions Session[]
+
+  createdProposalBatches ProposalBatch[]  @relation("ProposalBatchCreatedBy")
+  ownedProposals         Proposal[]       @relation("ProposalOwner")
+  createdProposals       Proposal[]       @relation("ProposalCreatedBy")
+  proposalMemberships    ProposalMember[] @relation("ProposalMemberUser")
+  addedProposalMembers   ProposalMember[] @relation("ProposalMemberAddedBy")
+
+  createdTasks    Task[]         @relation("TaskCreatedBy")
+  completedTasks  Task[]         @relation("TaskCompletedBy")
+  taskAssignments TaskAssignee[] @relation("TaskAssigneeUser")
+  assignmentsMade TaskAssignee[] @relation("TaskAssigneeAssignedBy")
+
+  createdTaskTemplates   TaskTemplate[] @relation("TaskTemplateCreatedBy")
+  comments               Comment[]      @relation("CommentAuthor")
+  attachments            Attachment[]   @relation("AttachmentUploadedBy")
+  activityLogs           ActivityLog[]  @relation("ActivityLogActor")
+  notifications          Notification[] @relation("NotificationRecipient")
+  triggeredNotifications Notification[] @relation("NotificationActor")
+  updatedAppSettings     AppSetting[]   @relation("AppSettingUpdatedBy")
+
+  @@index([role, isActive])
+  @@map("users")
+}
+
+/// Server-side session — cookie เก็บ token ดิบ, DB เก็บเฉพาะ SHA-256 hex
+/// lookup ต้อง JOIN users ที่ is_active เสมอ (03-database.md §7)
+model Session {
+  id                String               @id @default(uuid(7)) @db.Uuid
+  userId            String               @map("user_id") @db.Uuid
+  tokenHash         String               @unique @map("token_hash") @db.Char(64)
+  createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastSeenAt        DateTime             @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  /// idle expiry (sliding 8 ชม.) — ต่ออายุได้ไม่เกิน absoluteExpiresAt (7 วัน)
+  expiresAt         DateTime             @map("expires_at") @db.Timestamptz(3)
+  absoluteExpiresAt DateTime             @map("absolute_expires_at") @db.Timestamptz(3)
+  ipAddress         String?              @map("ip_address") @db.VarChar(45)
+  userAgent         String?              @map("user_agent") @db.VarChar(500)
+  revokedAt         DateTime?            @map("revoked_at") @db.Timestamptz(3)
+  revokeReason      SessionRevokeReason? @map("revoke_reason")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "sessions_user_live_idx", where: raw("revoked_at IS NULL"))
+  @@index([absoluteExpiresAt])
+  @@map("sessions")
+}
+
+model AppSetting {
+  key         String   @id @db.VarChar(100)
+  value       Json
+  updatedById String?  @map("updated_by_id") @db.Uuid
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  updatedBy User? @relation("AppSettingUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+
+  @@map("app_settings")
+}
+
+// ─────────────────────────────── Master data ───────────────────────────────
+
+model Store {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  code      String    @unique @db.VarChar(30)
+  name      String    @db.VarChar(100)
+  /// (เพิ่ม) คีย์ชื่อสำหรับกันซ้ำ = normalize_name_key(name) — trigger ตั้งค่าให้เอง ไม่ต้องส่งจาก app
+  nameKey   String    @default("") @map("name_key") @db.VarChar(100)
+  nameTh    String?   @map("name_th") @db.VarChar(100)
+  /// เปลี่ยนไม่ได้เมื่อถูกอ้างอิง — บังคับด้วย composite FK (id, channel) ON UPDATE RESTRICT
+  channel   Channel
+  groupName String?   @map("group_name") @db.VarChar(100)
+  logoUrl   String?   @map("logo_url") @db.VarChar(500)
+  colorHex  String?   @map("color_hex") @db.Char(7)
+  note      String?
+  sortOrder Int       @default(0) @map("sort_order")
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(3)
+
+  proposals Proposal[]
+
+  /// เป้าหมายของ composite FK ที่บังคับ channel ให้ตรงกัน
+  @@unique([id, channel])
+  /// ชื่อไม่ซ้ำภายในช่องทาง (ไม่สนตัวพิมพ์/ช่องว่าง) เฉพาะรายการที่ยังไม่ถูกลบ — ห้ามใช้ findUnique/upsert กับคีย์นี้ (prisma/orm#29282)
+  @@unique([channel, nameKey], map: "stores_channel_name_key_live_key", where: raw("deleted_at IS NULL"))
+  @@index([channel, sortOrder], map: "stores_picker_idx", where: raw("deleted_at IS NULL AND is_active"))
+  @@map("stores")
+}
+
+model ShelfType {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  code        String    @unique @db.VarChar(30)
+  name        String    @db.VarChar(100)
+  /// (เพิ่ม) คีย์ชื่อสำหรับกันซ้ำ — trigger ตั้งค่าให้เอง
+  nameKey     String    @default("") @map("name_key") @db.VarChar(100)
+  nameTh      String?   @map("name_th") @db.VarChar(100)
+  description String?
+  channel     Channel
+  colorHex    String?   @map("color_hex") @db.Char(7)
+  sortOrder   Int       @default(0) @map("sort_order")
+  isActive    Boolean   @default(true) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+
+  proposals     Proposal[]
+  taskTemplates TaskTemplate[]
+
+  @@unique([id, channel])
+  @@unique([channel, nameKey], map: "shelf_types_channel_name_key_live_key", where: raw("deleted_at IS NULL"))
+  @@index([channel, sortOrder], map: "shelf_types_picker_idx", where: raw("deleted_at IS NULL AND is_active"))
+  @@map("shelf_types")
+}
+
+model Product {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  /// unique ถาวร (รวมรายการที่ถูกลบ) → ถ้าชนกับรายการที่ลบแล้วให้ "กู้คืน" แทน
+  sku       String    @unique @db.VarChar(50)
+  name      String    @db.VarChar(200)
+  brand     String?   @db.VarChar(100)
+  category  String?   @db.VarChar(100)
+  /// unique เฉพาะรายการที่ยังไม่ถูกลบและกรอกค่า (partial unique products_barcode_live_key)
+  barcode   String?   @db.VarChar(14)
+  packSize  String?   @map("pack_size") @db.VarChar(50)
+  imageUrl  String?   @map("image_url") @db.VarChar(500)
+  note      String?
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(3)
+
+  proposalProducts ProposalProduct[]
+
+  @@unique([barcode], map: "products_barcode_live_key", where: raw("deleted_at IS NULL AND barcode IS NOT NULL"))
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "products_name_trgm_idx")
+  @@map("products")
+}
+
+// ─────────────────────────────── Proposals ───────────────────────────────
+
+/// (เพิ่ม) เลขรันรหัสข้อเสนอต่อปี ค.ศ. — ใช้ INSERT … ON CONFLICT DO UPDATE … RETURNING
+model ProposalCodeCounter {
+  year      Int      @id @db.SmallInt
+  lastValue Int      @default(0) @map("last_value")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("proposal_code_counters")
+}
+
+/// (เพิ่ม) ชุดข้อเสนอที่สร้างพร้อมกันจาก wizard — id = batchId ที่ client สร้าง (idempotency key)
+/// INSERT … ON CONFLICT (id) DO NOTHING เป็นคำสั่งแรกของ tx สร้างข้อเสนอ → retry/กดซ้ำไม่สร้างซ้ำ
+model ProposalBatch {
+  id          String   @id @db.Uuid
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  createdBy User       @relation("ProposalBatchCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  proposals Proposal[]
+
+  @@map("proposal_batches")
+}
+
+model Proposal {
+  id                String         @id @default(uuid(7)) @db.Uuid
+  /// PRP-{YYYY}-{NNNN} ไม่นำกลับมาใช้ซ้ำ
+  code              String         @unique @db.VarChar(20)
+  title             String         @db.VarChar(200)
+  description       String?
+  channel           Channel
+  storeId           String         @map("store_id") @db.Uuid
+  shelfTypeId       String         @map("shelf_type_id") @db.Uuid
+  targetDate        DateTime       @map("target_date") @db.Date
+  /// วันวางขาย/Go-live จริง — บังคับเมื่อ COMPLETED, ใช้กับ health LATE และ KPI K6/K8
+  actualLaunchDate  DateTime?      @map("actual_launch_date") @db.Date
+  campaignName      String?        @map("campaign_name") @db.VarChar(100)
+  status            ProposalStatus @default(DRAFT)
+  statusReason      String?        @map("status_reason")
+  cancelReason      CancelReason?  @map("cancel_reason")
+  ownerId           String         @map("owner_id") @db.Uuid
+  /// FK → proposal_batches.id (ข้อเสนอที่สร้างพร้อมกันมีค่าเดียวกัน)
+  batchId           String?        @map("batch_id") @db.Uuid
+  taskTemplateId    String?        @map("task_template_id") @db.Uuid
+  /// cache: floor(done/leaf*100) อัปเดตใน transaction เดียวกับการแก้งาน
+  progressPercent   Int            @default(0) @map("progress_percent") @db.SmallInt
+  leafTaskCount     Int            @default(0) @map("leaf_task_count")
+  doneLeafTaskCount Int            @default(0) @map("done_leaf_task_count")
+  startedAt         DateTime?      @map("started_at") @db.Timestamptz(3)
+  completedAt       DateTime?      @map("completed_at") @db.Timestamptz(3)
+  cancelledAt       DateTime?      @map("cancelled_at") @db.Timestamptz(3)
+  createdById       String         @map("created_by_id") @db.Uuid
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  /// เปลี่ยนทุกครั้งที่มีการแก้ข้อมูลใดๆ ในข้อเสนอ (touchProposal) → ใช้เป็น ETag ของ task tree
+  updatedAt         DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt         DateTime?      @map("deleted_at") @db.Timestamptz(3)
+  /// optimistic locking ของ header ข้อเสนอ (progress cache / touch ไม่เพิ่ม version)
+  version           Int            @default(1)
+
+  /// composite FK บังคับ proposal.channel = store.channel = shelfType.channel ที่ระดับ DB
+  store        Store          @relation(fields: [storeId, channel], references: [id, channel], onDelete: Restrict, onUpdate: Restrict)
+  shelfType    ShelfType      @relation(fields: [shelfTypeId, channel], references: [id, channel], onDelete: Restrict, onUpdate: Restrict)
+  owner        User           @relation("ProposalOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  createdBy    User           @relation("ProposalCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  batch        ProposalBatch? @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  taskTemplate TaskTemplate?  @relation(fields: [taskTemplateId], references: [id], onDelete: SetNull)
+
+  products      ProposalProduct[]
+  members       ProposalMember[]
+  tasks         Task[]
+  comments      Comment[]
+  attachments   Attachment[]
+  activityLogs  ActivityLog[]
+  notifications Notification[]
+
+  @@index([status, targetDate], map: "proposals_status_target_live_idx", where: raw("deleted_at IS NULL"))
+  @@index([ownerId, status])
+  @@index([storeId, status])
+  @@index([shelfTypeId])
+  @@index([taskTemplateId])
+  @@index([batchId], map: "proposals_batch_idx", where: raw("batch_id IS NOT NULL"))
+  @@index([completedAt], map: "proposals_completed_live_idx", where: raw("status = 'COMPLETED' AND deleted_at IS NULL"))
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "proposals_title_trgm_idx")
+  @@map("proposals")
+}
+
+model ProposalProduct {
+  id         String                @id @default(uuid(7)) @db.Uuid
+  proposalId String                @map("proposal_id") @db.Uuid
+  productId  String                @map("product_id") @db.Uuid
+  status     ProposalProductStatus @default(PENDING)
+  note       String?
+  sortOrder  Int                   @default(0) @map("sort_order")
+  createdAt  DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  proposal Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([proposalId, productId])
+  @@index([productId])
+  @@map("proposal_products")
+}
+
+model ProposalMember {
+  id         String             @id @default(uuid(7)) @db.Uuid
+  proposalId String             @map("proposal_id") @db.Uuid
+  userId     String             @map("user_id") @db.Uuid
+  memberRole ProposalMemberRole @map("member_role")
+  /// null = ระบบเพิ่มให้อัตโนมัติตอนมอบหมายงาน (BR-14)
+  addedById  String?            @map("added_by_id") @db.Uuid
+  createdAt  DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  proposal Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  user     User     @relation("ProposalMemberUser", fields: [userId], references: [id], onDelete: Restrict)
+  addedBy  User?    @relation("ProposalMemberAddedBy", fields: [addedById], references: [id], onDelete: Restrict)
+
+  @@unique([proposalId, userId])
+  @@index([userId, proposalId])
+  @@map("proposal_members")
+}
+
+// ─────────────────────────────── Tasks (adjacency list, 3 levels) ───────────────────────────────
+
+model Task {
+  id                  String               @id @default(uuid(7)) @db.Uuid
+  proposalId          String               @map("proposal_id") @db.Uuid
+  parentId            String?              @map("parent_id") @db.Uuid
+  /// 1 งาน · 2 งานย่อย · 3 รายการย่อย — service คำนวณ, CHECK + deferred trigger ตรวจ (เฉพาะแถวที่ยังไม่ถูกลบ)
+  level               Int                  @db.SmallInt
+  title               String               @db.VarChar(200)
+  description         String?
+  /// งานที่มีลูก = ค่าที่คำนวณจากลูก (C3) แต่เก็บจริงเพื่อ query "งานของฉัน" ได้ตรง
+  status              TaskStatus           @default(TODO)
+  priority            TaskPriority         @default(MEDIUM)
+  startDate           DateTime?            @map("start_date") @db.Date
+  dueDate             DateTime?            @map("due_date") @db.Date
+  /// integer gap (ระยะ 1024) เรียงภายในกลุ่มพี่น้อง; tie-break ด้วย id
+  sortOrder           Int                  @map("sort_order")
+  completedAt         DateTime?            @map("completed_at") @db.Timestamptz(3)
+  completedById       String?              @map("completed_by_id") @db.Uuid
+  templateItemId      String?              @map("template_item_id") @db.Uuid
+  responsibleFunction ResponsibleFunction? @map("responsible_function")
+  isMilestone         Boolean              @default(false) @map("is_milestone")
+  requiresAttachment  Boolean              @default(false) @map("requires_attachment")
+  createdById         String               @map("created_by_id") @db.Uuid
+  createdAt           DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt           DateTime?            @map("deleted_at") @db.Timestamptz(3)
+  version             Int                  @default(1)
+
+  proposal     Proposal          @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  parent       Task?             @relation("TaskTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children     Task[]            @relation("TaskTree")
+  templateItem TaskTemplateItem? @relation(fields: [templateItemId], references: [id], onDelete: SetNull)
+  createdBy    User              @relation("TaskCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  completedBy  User?             @relation("TaskCompletedBy", fields: [completedById], references: [id], onDelete: Restrict)
+
+  assignees     TaskAssignee[]
+  notifications Notification[]
+
+  /// โหลดทั้งต้นไม้ของข้อเสนอ + หาพี่น้องตอนเรียง
+  @@index([proposalId, parentId, sortOrder], map: "tasks_tree_idx")
+  /// หาลูก (leaf test, cascade) และรองรับ FK ON DELETE CASCADE
+  @@index([parentId])
+  /// งานค้างที่มีกำหนดส่ง: overdue / due soon / cron 08:00
+  @@index([dueDate], map: "tasks_open_due_idx", where: raw("deleted_at IS NULL AND status <> 'DONE'"))
+  @@index([templateItemId])
+  @@map("tasks")
+}
+
+model TaskAssignee {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  taskId       String   @map("task_id") @db.Uuid
+  /// ต้องเป็นผู้ใช้ Active ตอน INSERT/UPDATE (trigger assert_user_active)
+  userId       String   @map("user_id") @db.Uuid
+  isPrimary    Boolean  @default(false) @map("is_primary")
+  assignedById String   @map("assigned_by_id") @db.Uuid
+  assignedAt   DateTime @default(now()) @map("assigned_at") @db.Timestamptz(3)
+
+  task       Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user       User @relation("TaskAssigneeUser", fields: [userId], references: [id], onDelete: Restrict)
+  assignedBy User @relation("TaskAssigneeAssignedBy", fields: [assignedById], references: [id], onDelete: Restrict)
+
+  @@unique([taskId, userId])
+  /// ผู้รับผิดชอบหลักได้ไม่เกิน 1 คนต่องาน
+  @@unique([taskId, isPrimary], map: "task_assignees_one_primary_key", where: raw("is_primary"))
+  @@index([userId])
+  @@map("task_assignees")
+}
+
+// ─────────────────────────────── Templates ───────────────────────────────
+
+model TaskTemplate {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  /// (เพิ่ม) คีย์ของแม่แบบที่ระบบ seed เช่น OFFLINE_NORMAL_BASIC — null สำหรับแม่แบบที่ผู้ใช้สร้าง
+  code            String?   @unique @db.VarChar(50)
+  name            String    @db.VarChar(150)
+  description     String?
+  channel         Channel
+  /// null = ใช้ได้ทุกรูปแบบในช่องทาง
+  shelfTypeId     String?   @map("shelf_type_id") @db.Uuid
+  isDefault       Boolean   @default(false) @map("is_default")
+  /// (เพิ่ม) "{channel}:{shelfTypeId|*}" เมื่อ isDefault ไม่งั้น null → unique = default ได้ 1 แม่แบบต่อ scope
+  defaultScopeKey String?   @unique @map("default_scope_key") @db.VarChar(100)
+  isActive        Boolean   @default(true) @map("is_active")
+  createdById     String    @map("created_by_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(3)
+
+  shelfType ShelfType? @relation(fields: [shelfTypeId, channel], references: [id, channel], onDelete: Restrict, onUpdate: Restrict)
+  createdBy User       @relation("TaskTemplateCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  items     TaskTemplateItem[]
+  proposals Proposal[]
+
+  @@index([channel, isActive], map: "task_templates_picker_idx", where: raw("deleted_at IS NULL"))
+  @@index([shelfTypeId, channel])
+  @@map("task_templates")
+}
+
+model TaskTemplateItem {
+  id                  String               @id @default(uuid(7)) @db.Uuid
+  templateId          String               @map("template_id") @db.Uuid
+  parentItemId        String?              @map("parent_item_id") @db.Uuid
+  level               Int                  @db.SmallInt
+  title               String               @db.VarChar(200)
+  description         String?
+  /// วันเทียบกับ targetDate (ลบ = ก่อนวันวางขาย); durationDays = due − start + 1 (ไม่เก็บ)
+  startOffsetDays     Int                  @map("start_offset_days")
+  dueOffsetDays       Int                  @map("due_offset_days")
+  priority            TaskPriority         @default(MEDIUM)
+  assignToOwner       Boolean              @default(true) @map("assign_to_owner")
+  responsibleFunction ResponsibleFunction? @map("responsible_function")
+  isMilestone         Boolean              @default(false) @map("is_milestone")
+  requiresAttachment  Boolean              @default(false) @map("requires_attachment")
+  sortOrder           Int                  @map("sort_order")
+  createdAt           DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  template   TaskTemplate       @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  parentItem TaskTemplateItem?  @relation("TemplateItemTree", fields: [parentItemId], references: [id], onDelete: Cascade)
+  childItems TaskTemplateItem[] @relation("TemplateItemTree")
+  tasks      Task[]
+
+  @@index([templateId, parentItemId, sortOrder], map: "task_template_items_tree_idx")
+  @@index([parentItemId])
+  @@map("task_template_items")
+}
+
+// ─────────────────────────────── Collaboration ───────────────────────────────
+
+model Comment {
+  id               String     @id @default(uuid(7)) @db.Uuid
+  targetType       TargetType @map("target_type")
+  targetId         String     @map("target_id") @db.Uuid
+  proposalId       String     @map("proposal_id") @db.Uuid
+  authorId         String     @map("author_id") @db.Uuid
+  body             String
+  mentionedUserIds String[]   @default([]) @map("mentioned_user_ids") @db.Uuid
+  editedAt         DateTime?  @map("edited_at") @db.Timestamptz(3)
+  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  deletedAt        DateTime?  @map("deleted_at") @db.Timestamptz(3)
+
+  proposal Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  author   User     @relation("CommentAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([targetType, targetId, createdAt])
+  @@index([proposalId, createdAt])
+  @@map("comments")
+}
+
+model Attachment {
+  id           String         @id @default(uuid(7)) @db.Uuid
+  targetType   TargetType     @map("target_type")
+  targetId     String         @map("target_id") @db.Uuid
+  proposalId   String         @map("proposal_id") @db.Uuid
+  kind         AttachmentKind
+  fileName     String         @map("file_name") @db.VarChar(255)
+  mimeType     String?        @map("mime_type") @db.VarChar(100)
+  sizeBytes    BigInt?        @map("size_bytes")
+  storageKey   String?        @unique @map("storage_key") @db.VarChar(500)
+  url          String?        @db.VarChar(1000)
+  uploadedById String         @map("uploaded_by_id") @db.Uuid
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  deletedAt    DateTime?      @map("deleted_at") @db.Timestamptz(3)
+
+  proposal   Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  uploadedBy User     @relation("AttachmentUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([targetType, targetId, createdAt])
+  @@index([proposalId, createdAt])
+  @@map("attachments")
+}
+
+// ─────────────────────────────── Audit & notifications ───────────────────────────────
+
+/// append-only (trigger กัน UPDATE/DELETE/TRUNCATE)
+model ActivityLog {
+  id         String          @id @default(uuid(7)) @db.Uuid
+  actorId    String?         @map("actor_id") @db.Uuid
+  action     ActivityAction
+  entityType AuditEntityType @map("entity_type")
+  /// null ได้เฉพาะ LOGIN_FAILED ที่ไม่พบผู้ใช้, entityType APP_SETTING (คีย์อยู่ใน changes.key) และ REPORT
+  entityId   String?         @map("entity_id") @db.Uuid
+  proposalId String?         @map("proposal_id") @db.Uuid
+  summary    String          @db.VarChar(500)
+  changes    Json?
+  ipAddress  String?         @map("ip_address") @db.VarChar(45)
+  userAgent  String?         @map("user_agent") @db.VarChar(500)
+  createdAt  DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  actor    User?     @relation("ActivityLogActor", fields: [actorId], references: [id], onDelete: Restrict)
+  proposal Proposal? @relation(fields: [proposalId], references: [id], onDelete: Restrict)
+
+  @@index([proposalId, createdAt], map: "activity_logs_proposal_idx", where: raw("proposal_id IS NOT NULL"))
+  @@index([entityType, entityId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([createdAt])
+  @@map("activity_logs")
+}
+
+model Notification {
+  id          String           @id @default(uuid(7)) @db.Uuid
+  recipientId String           @map("recipient_id") @db.Uuid
+  type        NotificationType
+  title       String           @db.VarChar(200)
+  body        String?          @db.VarChar(500)
+  /// path ภายในแอปเท่านั้น (CHECK ขึ้นต้นด้วย '/' ตัวเดียว) กัน open redirect
+  linkUrl     String           @map("link_url") @db.VarChar(500)
+  proposalId  String?          @map("proposal_id") @db.Uuid
+  taskId      String?          @map("task_id") @db.Uuid
+  actorId     String?          @map("actor_id") @db.Uuid
+  /// (เพิ่ม) กันแจ้งซ้ำจาก cron/retry เช่น "TASK_OVERDUE:{userId}:2026-10-01" — ใช้ createMany({ skipDuplicates: true })
+  dedupeKey   String?          @unique @map("dedupe_key") @db.VarChar(150)
+  isRead      Boolean          @default(false) @map("is_read")
+  readAt      DateTime?        @map("read_at") @db.Timestamptz(3)
+  emailSentAt DateTime?        @map("email_sent_at") @db.Timestamptz(3)
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  recipient User      @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  actor     User?     @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  proposal  Proposal? @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  task      Task?     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([recipientId, createdAt])
+  @@index([recipientId], map: "notifications_unread_idx", where: raw("NOT is_read"))
+  @@index([readAt], map: "notifications_read_cleanup_idx", where: raw("is_read"))
+  @@map("notifications")
+}

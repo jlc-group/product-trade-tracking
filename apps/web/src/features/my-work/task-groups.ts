@@ -1,0 +1,94 @@
+import { addDays, type ISODate, type Store } from '@flowtrade/shared'
+import type { TaskWithContext } from '@/api'
+import { formatDate } from '@/lib/format'
+
+export type GroupTone = 'danger' | 'brand' | 'default' | 'muted'
+
+export interface TaskGroup {
+  key: string
+  title: string
+  subtitle?: string
+  tone: GroupTone
+  items: TaskWithContext[]
+  /** Set when grouped by project. */
+  project?: { id: string; code: string; title: string; store: Store }
+}
+
+type DueBucket = 'overdue' | 'past' | 'today' | 'tomorrow' | 'week' | 'later' | 'none'
+
+const BUCKET_ORDER: DueBucket[] = ['overdue', 'past', 'today', 'tomorrow', 'week', 'later', 'none']
+
+function bucketOf(item: TaskWithContext, isDone: boolean, today: ISODate): DueBucket {
+  const due = item.task.dueDate
+  if (!due) return 'none'
+  if (due < today) return isDone ? 'past' : 'overdue'
+  if (due === today) return 'today'
+  if (due === addDays(today, 1)) return 'tomorrow'
+  if (due <= addDays(today, 7)) return 'week'
+  return 'later'
+}
+
+const short = (d: ISODate) => formatDate(d, { withYear: false })
+
+function bucketMeta(bucket: DueBucket, today: ISODate): Pick<TaskGroup, 'title' | 'subtitle' | 'tone'> {
+  switch (bucket) {
+    case 'overdue':
+      return { title: 'เลยกำหนด', subtitle: 'จัดการก่อนเป็นอันดับแรก', tone: 'danger' }
+    case 'past':
+      return { title: 'ครบกำหนดไปแล้ว', tone: 'muted' }
+    case 'today':
+      return { title: 'วันนี้', subtitle: formatDate(today, { long: true }), tone: 'brand' }
+    case 'tomorrow':
+      return { title: 'พรุ่งนี้', subtitle: short(addDays(today, 1)), tone: 'default' }
+    case 'week':
+      return { title: 'ภายใน 7 วัน', subtitle: `${short(addDays(today, 2))} – ${short(addDays(today, 7))}`, tone: 'default' }
+    case 'later':
+      return { title: 'หลังจากนั้น', subtitle: `ตั้งแต่ ${short(addDays(today, 8))}`, tone: 'muted' }
+    case 'none':
+      return { title: 'ยังไม่กำหนดวัน', subtitle: 'ควรกำหนดวันครบกำหนดให้ชัดเจน', tone: 'muted' }
+  }
+}
+
+export function groupByDue(items: TaskWithContext[], isDone: (item: TaskWithContext) => boolean, today: ISODate): TaskGroup[] {
+  const buckets = new Map<DueBucket, TaskWithContext[]>()
+  for (const item of items) {
+    const b = bucketOf(item, isDone(item), today)
+    buckets.set(b, [...(buckets.get(b) ?? []), item])
+  }
+  return BUCKET_ORDER.filter((b) => buckets.has(b)).map((b) => ({ key: b, items: buckets.get(b)!, ...bucketMeta(b, today) }))
+}
+
+export function groupByProject(items: TaskWithContext[], isDone: (item: TaskWithContext) => boolean, today: ISODate): TaskGroup[] {
+  const groups = new Map<string, TaskGroup>()
+  for (const item of items) {
+    const existing = groups.get(item.proposal.id)
+    if (existing) {
+      existing.items.push(item)
+      continue
+    }
+    groups.set(item.proposal.id, {
+      key: item.proposal.id,
+      title: item.proposal.title,
+      tone: 'default',
+      items: [item],
+      project: { id: item.proposal.id, code: item.proposal.code, title: item.proposal.title, store: item.store },
+    })
+  }
+  const earliest = (g: TaskGroup) => g.items.reduce((min, i) => (i.task.dueDate && i.task.dueDate < min ? i.task.dueDate : min), '9999-12-31')
+  return [...groups.values()]
+    .map((g) => {
+      const overdue = g.items.filter((i) => !isDone(i) && !!i.task.dueDate && i.task.dueDate < today).length
+      return { ...g, tone: overdue > 0 ? ('danger' as const) : ('default' as const), subtitle: overdue > 0 ? `เลยกำหนด ${overdue} งาน` : undefined }
+    })
+    .sort((a, b) => earliest(a).localeCompare(earliest(b)))
+}
+
+/** Case-insensitive match over the task (incl. its department), its path, project and store. */
+export function matchesQuery(item: TaskWithContext, q: string) {
+  const needle = q.trim().toLowerCase()
+  if (!needle) return true
+  return [item.task.title, item.task.description ?? '', item.task.responsible ?? '', ...item.path, item.proposal.title, item.proposal.code, item.store.name, item.store.shortName]
+    .join('\n')
+    .toLowerCase()
+    .includes(needle)
+}

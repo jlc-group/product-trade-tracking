@@ -1,0 +1,26 @@
+{
+  "name": "flowtrade",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "predev": "npm run build -w @flowtrade/shared && npm run prisma:generate -w @flowtrade/api",
+    "dev": "concurrently -k -n shared,api,web -c gray,blue,magenta \"npm run dev -w @flowtrade/shared\" \"npm run dev -w @flowtrade/api\" \"npm run dev -w @flowtrade/web\"",
+    "dev:web": "npm run dev -w @flowtrade/web",
+    "dev:api": "npm run build -w @flowtrade/shared && npm run dev -w @flowtrade/api",
+    "build": "npm run build -w @flowtrade/shared && npm run build -w @flowtrade/api && npm run build -w @flowtrade/web",
+    "typecheck": "npm run build -w @flowtrade/shared && npm run typecheck -w @flowtrade/api && npm run typecheck -w @flowtrade/web",
+    "db:migrate": "npm run db:migrate -w @flowtrade/api",
+    "db:bootstrap": "npm run db:bootstrap -w @flowtrade/api",
+    "db:reset-empty": "npm run db:reset-empty -w @flowtrade/api --"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.4"
+  }
+}
