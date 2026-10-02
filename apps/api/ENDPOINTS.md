@@ -92,6 +92,7 @@ Validation and error messages are Thai and are shown to users as-is. The web cli
 | DELETE | /proposals/:id | `proposal.delete.any`, or owner of a DRAFT | — | `true` |
 | GET | /proposals/:id/tasks | can view | — | `Task[]` (flat) |
 | GET | /proposals/:id/comment-counts | can view | — | `Record<taskId, count>` |
+| GET | /proposals/:id/report | can view | — | `ProposalReport` — extras for the PDF export page: `users` the tasks refer to (assignees, completed by, created by; deactivated included), every task `comments` (oldest first), `lastActivity` = latest TASK activity per task id (absent when a task was never changed after creation) |
 | GET | /tasks/mine | signed in | `?status=open\|done\|all&due=overdue\|today\|week\|all&proposalId=` | `TaskWithContext[]` |
 | POST | /tasks | member/owner or `task.manage.any` | `CreateTaskInput` (optional `responsible` department) | `Task` |
 | PATCH | /tasks/:id | managers; assignees may change description/dates/priority and fill `detailValues` only (not title, assignees, `responsible`, `descriptionFormat` or the table rows) | `UpdateTaskInput` (`responsible: null` or `''` clears it; table rows, see *Task details*; changes are noted in the activity log) | `Task` |

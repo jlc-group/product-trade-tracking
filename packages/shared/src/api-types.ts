@@ -6,6 +6,7 @@ import type {
   DescriptionFormat,
   DetailFieldInput,
   ISODate,
+  ISODateTime,
   Product,
   Proposal,
   ProposalStatus,
@@ -48,6 +49,24 @@ export interface CommentWithAuthor extends Comment {
 
 export interface ActivityWithActor extends ActivityLog {
   actor: User
+}
+
+/** The latest logged change of one task (from the activity log). */
+export interface TaskLastActivity {
+  action: string
+  summary: string
+  createdAt: ISODateTime
+  actor: User
+}
+
+/** Extra data for the printable report of one proposal (GET /proposals/:id/report). */
+export interface ProposalReport {
+  /** Everyone the tasks refer to (assignees, completed by, created by) — deactivated users included. */
+  users: User[]
+  /** Comments on the proposal's tasks, oldest first. */
+  comments: CommentWithAuthor[]
+  /** Latest logged change per task id; tasks with no logged change since they were created are absent. */
+  lastActivity: Record<string, TaskLastActivity>
 }
 
 export interface DashboardSummary {

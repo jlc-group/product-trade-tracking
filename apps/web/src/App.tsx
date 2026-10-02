@@ -11,6 +11,7 @@ const MyTasksPage = lazy(() => import('@/pages/my-tasks'))
 const ProposalsPage = lazy(() => import('@/pages/proposals/list'))
 const NewProposalPage = lazy(() => import('@/pages/proposals/new'))
 const ProposalDetailPage = lazy(() => import('@/pages/proposals/detail'))
+const ProposalPrintPage = lazy(() => import('@/pages/proposals/print'))
 const CalendarPage = lazy(() => import('@/pages/calendar'))
 const AdminMonitorPage = lazy(() => import('@/pages/admin/monitor'))
 const AdminStoresPage = lazy(() => import('@/pages/admin/stores'))
@@ -44,6 +45,8 @@ function AppRoutes() {
       <Route path="/login" element={<LoginPage />} />
       <Route element={<RequireAuth />}>
         <Route path="/change-password" element={<ChangePasswordPage />} />
+        {/* PDF export: printable A4 pages, outside the app shell so no sidebar or header is printed. */}
+        <Route path="/proposals/:id/print" element={<ProposalPrintPage />} />
         <Route element={<AppShell />}>
           <Route index element={<HomePage />} />
           <Route path="my-tasks" element={<MyTasksPage />} />

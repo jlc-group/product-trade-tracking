@@ -170,3 +170,19 @@
   .tabular { font-variant-numeric: tabular-nums; }
   .scrollbar-thin { scrollbar-width: thin; }
 }
+
+/* Keep background colors (highlighted cells, chips) when printing — browsers drop them by default. */
+@utility print-exact {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+@media print {
+  html,
+  body {
+    background: #fff !important;
+  }
+  [data-sonner-toaster] {
+    display: none !important;
+  }
+}

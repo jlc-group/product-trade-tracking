@@ -38,6 +38,7 @@ export const qk = {
   templatePreview: (id: string | null, targetDate: string | null, excluded: string[]) => ['templates', 'preview', id, targetDate, excluded] as const,
   proposals: (filters: ProposalFilters = {}) => ['proposals', 'list', filters] as const,
   proposal: (id: string) => ['proposals', 'detail', id] as const,
+  proposalReport: (id: string) => ['proposals', 'report', id] as const,
   tasks: (proposalId: string) => ['tasks', proposalId] as const,
   myTasks: (filters: MyTasksFilters = {}) => ['my-tasks', filters] as const,
   comments: (taskId: string) => ['comments', taskId] as const,
@@ -200,6 +201,8 @@ export function useReorderShelfTypes() {
 export const useProposals = (filters: ProposalFilters = {}, opts: { keepPrevious?: boolean } = {}) =>
   useQuery({ queryKey: qk.proposals(filters), queryFn: () => api.proposals.list(filters), placeholderData: opts.keepPrevious ? keepPreviousData : undefined })
 export const useProposal = (id: string) => useQuery({ queryKey: qk.proposal(id), queryFn: () => api.proposals.get(id), retry: false })
+/** Extras for the PDF export page: task users, all task comments, last change per task. */
+export const useProposalReport = (id: string) => useQuery({ queryKey: qk.proposalReport(id), queryFn: () => api.proposals.report(id), retry: false })
 
 export function useCreateProposal() {
   const qc = useQueryClient()

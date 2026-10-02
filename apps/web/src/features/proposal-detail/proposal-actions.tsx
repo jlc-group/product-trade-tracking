@@ -1,7 +1,7 @@
 import { can, canDeleteProposal, canEditProposal, isProposalOwner, STATUS_LABEL, STATUS_ORDER, type ProposalStatus } from '@flowtrade/shared'
-import { CalendarClockIcon, ChevronDownIcon, CopyIcon, Loader2Icon, MoreHorizontalIcon, PencilIcon, Trash2Icon } from 'lucide-react'
+import { CalendarClockIcon, ChevronDownIcon, CopyIcon, FileDownIcon, Loader2Icon, MoreHorizontalIcon, PencilIcon, Trash2Icon } from 'lucide-react'
 import { useState } from 'react'
-import { useNavigate } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import type { ProposalDetail } from '@/api'
 import { useChangeProposalStatus, useDeleteProposal } from '@/api/hooks'
@@ -59,7 +59,7 @@ function StatusRadioItems({ current, openLeft, onPick }: { current: ProposalStat
   )
 }
 
-/** Header actions. Wide screens get separate buttons; < md collapses everything into one menu. */
+/** Header actions. Wide screens get separate buttons; < md collapses everything into one menu. Everyone who can view gets the PDF export. */
 export function ProposalActions({ proposal }: { proposal: ProposalDetail }) {
   const user = useCurrentUser()
   const navigate = useNavigate()
@@ -78,8 +78,8 @@ export function ProposalActions({ proposal }: { proposal: ProposalDetail }) {
       ? 'ลบได้เฉพาะงานร่าง — ใช้สถานะ "ยกเลิก" แทน'
       : 'เฉพาะเจ้าของงานร่างหรือ Admin ที่ลบได้'
     : null
-
-  if (!canEdit && !canDuplicate) return null
+  // Opens the printable report in a new tab, so the detail page stays as it was.
+  const printHref = `/proposals/${proposal.id}/print`
 
   async function onStatus(next: ProposalStatus) {
     if (next === proposal.status || changeStatus.isPending) return
@@ -181,6 +181,11 @@ export function ProposalActions({ proposal }: { proposal: ProposalDetail }) {
             <PencilIcon /> แก้ไขข้อมูล
           </Button>
         )}
+        <Button asChild variant="outline">
+          <Link to={printHref} target="_blank" rel="noopener">
+            <FileDownIcon /> ส่งออก PDF
+          </Link>
+        </Button>
         {(duplicateItem || deleteItem) && (
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
@@ -221,6 +226,11 @@ export function ProposalActions({ proposal }: { proposal: ProposalDetail }) {
                 </DropdownMenuItem>
               </>
             )}
+            <DropdownMenuItem asChild>
+              <Link to={printHref} target="_blank" rel="noopener">
+                <FileDownIcon /> ส่งออก PDF
+              </Link>
+            </DropdownMenuItem>
             {duplicateItem}
             {deleteItem && (
               <>

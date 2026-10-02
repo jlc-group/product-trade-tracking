@@ -1,10 +1,11 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common'
 import type { Proposal, User } from '@flowtrade/shared'
-import type { ProposalDetail, ProposalListItem } from '@flowtrade/shared/api-types'
+import type { ProposalDetail, ProposalListItem, ProposalReport } from '@flowtrade/shared/api-types'
 import { CurrentUser, RequirePermission } from '../../auth/decorators.js'
 import { UuidPipe, ZodPipe } from '../../common/zod.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ProposalsReadService } from './proposals.read.js'
+import { ProposalReportService } from './proposals.report.js'
 import {
   createProposalSchema,
   duplicateSchema,
@@ -27,6 +28,7 @@ export class ProposalsController {
     private readonly prisma: PrismaService,
     private readonly read: ProposalsReadService,
     private readonly proposals: ProposalsService,
+    private readonly reports: ProposalReportService,
   ) {}
 
   /** ?q&status&channel&storeId&shelfTypeId&ownerId&scope=mine|all — sorted by targetDate. */
@@ -38,6 +40,12 @@ export class ProposalsController {
   @Get(':id')
   get(@CurrentUser() user: User, @Param('id', UuidPipe) id: string): Promise<ProposalDetail> {
     return this.read.detail(this.prisma, user, id)
+  }
+
+  /** Extras for the printable report (PDF export): task users, all task comments, last change per task. */
+  @Get(':id/report')
+  report(@CurrentUser() user: User, @Param('id', UuidPipe) id: string): Promise<ProposalReport> {
+    return this.reports.report(user, id)
   }
 
   /** Wizard submit — one proposal per store. */
