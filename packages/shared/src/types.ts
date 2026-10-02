@@ -156,6 +156,8 @@ export interface TaskTemplateItem {
   dueOffsetDays: number
   /** Responsible department copied to the task, e.g. "NPD", "Graphics". */
   responsible: string | null
+  /** Table row labels; non-empty = the task starts as a table (FIELDS) with these rows to fill in. */
+  fieldLabels: string[]
   sortOrder: number
 }
 

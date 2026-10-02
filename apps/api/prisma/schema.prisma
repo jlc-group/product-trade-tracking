@@ -342,6 +342,8 @@ model TaskTemplateItem {
   startOffsetDays Int     @map("start_offset_days")
   dueOffsetDays   Int     @map("due_offset_days")
   responsible     String?
+  /// ["label", …] — when non-empty the task starts in FIELDS format with these rows (values empty).
+  fieldLabels     Json    @default("[]") @map("field_labels")
   sortOrder       Int     @default(0) @map("sort_order")
 
   template TaskTemplate       @relation(fields: [templateId], references: [id], onDelete: Cascade)

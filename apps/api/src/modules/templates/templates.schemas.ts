@@ -1,4 +1,4 @@
-import { MAX_TASK_LEVEL } from '@flowtrade/shared'
+import { cleanFieldLabels, DETAIL_FIELDS_MAX, DETAIL_LABEL_MAX, MAX_TASK_LEVEL } from '@flowtrade/shared'
 import { z } from 'zod'
 import { zBoolQuery, zChannel, zDate, zId } from '../../common/zod.js'
 import { zResponsible } from '../tasks/tasks.schemas.js'
@@ -33,6 +33,12 @@ export const templateItemSchema = z.object({
   dueOffsetDays: zOffset('วันสิ้นสุด'),
   /** Responsible department copied to each task (trimmed; '' → null). */
   responsible: zResponsible.transform((v) => v ?? null),
+  /** Table row labels; non-empty = tasks start as a table with these rows. Blank labels are dropped. */
+  fieldLabels: z
+    .array(z.string({ message: 'หัวข้อในตารางไม่ถูกต้อง' }).max(DETAIL_LABEL_MAX, `หัวข้อในตารางยาวเกินไป (ไม่เกิน ${DETAIL_LABEL_MAX} ตัวอักษร)`), { message: 'หัวข้อในตารางไม่ถูกต้อง' })
+    .max(DETAIL_FIELDS_MAX, `ตารางมีได้ไม่เกิน ${DETAIL_FIELDS_MAX} แถว`)
+    .optional()
+    .transform((v) => cleanFieldLabels(v)),
   sortOrder: z.number({ message: 'ลำดับงานไม่ถูกต้อง' }).int('ลำดับงานไม่ถูกต้อง').optional(),
 })
 export type TemplateItemPayload = z.output<typeof templateItemSchema>

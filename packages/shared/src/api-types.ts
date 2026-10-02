@@ -104,6 +104,8 @@ export interface ProposalPlanItemInput {
   startDate: ISODate | null
   dueDate: ISODate | null
   responsible?: string | null
+  /** Table row labels from the template; non-empty = the task is created as a table. */
+  fieldLabels?: string[]
 }
 
 export interface CreateProposalInput {

@@ -27,6 +27,7 @@ interface ItemRow {
   startOffsetDays: number
   dueOffsetDays: number
   responsible: string | null
+  fieldLabels: string[]
   sortOrder: number
 }
 
@@ -88,6 +89,7 @@ export function prepareItems(items: TemplateItemPayload[]): ItemRow[] {
     startOffsetDays: i.startOffsetDays,
     dueOffsetDays: i.dueOffsetDays,
     responsible: i.responsible,
+    fieldLabels: i.fieldLabels,
     sortOrder: i.sortOrder,
   }))
 }

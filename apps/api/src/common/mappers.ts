@@ -1,5 +1,6 @@
 // Row → shared DTO mappers. Every API response uses the shapes in packages/shared/src/types.ts.
 import {
+  cleanFieldLabels,
   readDetailFields,
   type ActivityLog,
   type AppNotification,
@@ -135,6 +136,7 @@ export function toTemplate(t: TemplateRow): TaskTemplate {
       startOffsetDays: i.startOffsetDays,
       dueOffsetDays: i.dueOffsetDays,
       responsible: i.responsible,
+      fieldLabels: Array.isArray(i.fieldLabels) ? cleanFieldLabels(i.fieldLabels) : [],
       sortOrder: i.sortOrder,
     })),
     createdAt: iso(t.createdAt),

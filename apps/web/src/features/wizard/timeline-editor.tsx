@@ -12,6 +12,7 @@ import {
   PlayIcon,
   PlusIcon,
   RotateCcwIcon,
+  TableIcon,
   Trash2Icon,
   TriangleAlertIcon,
   Undo2Icon,
@@ -517,6 +518,12 @@ function TimelineRow({
         />
         {row.custom && <span className="shrink-0 rounded bg-brand-soft px-1.5 py-0.5 text-[10px] font-medium text-brand">เพิ่มเอง</span>}
         {hasChildren && !open && <span className="tabular shrink-0 text-[11px] text-muted-foreground">{row.childCount} งานย่อย</span>}
+        {row.fieldLabels.length > 0 && (
+          <span className="tabular inline-flex shrink-0 items-center gap-0.5 text-[11px] text-muted-foreground" title={`ตารางข้อมูล ${row.fieldLabels.length} หัวข้อ: ${row.fieldLabels.join(', ')}`}>
+            <TableIcon className="size-3" aria-hidden />
+            {row.fieldLabels.length} หัวข้อ
+          </span>
+        )}
         {afterLaunch && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -663,6 +670,7 @@ function AddTaskRow({
         startOffset,
         dueOffset: startOffset + Math.max(1, days) - 1,
         responsible: responsible.trim() || null,
+        fieldLabels: [],
         custom: true,
       },
     })

@@ -1,5 +1,5 @@
-import { addDays, LEVEL_LABEL, MAX_TASK_LEVEL, type ISODate, type TaskTemplateItem } from '@flowtrade/shared'
-import { ArrowDownIcon, ArrowUpIcon, CalendarDaysIcon, ChevronDownIcon, ChevronRightIcon, CornerDownRightIcon, PlusIcon, Trash2Icon } from 'lucide-react'
+import { addDays, DETAIL_FIELDS_MAX, DETAIL_LABEL_MAX, LEVEL_LABEL, MAX_TASK_LEVEL, type ISODate, type TaskTemplateItem } from '@flowtrade/shared'
+import { ArrowDownIcon, ArrowUpIcon, CalendarDaysIcon, ChevronDownIcon, ChevronRightIcon, CornerDownRightIcon, PlusIcon, TableIcon, Trash2Icon, XIcon } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils'
 import { offsetLabel, offsetPhrase, type ItemIssue, type Items } from './tree-ops'
 
 export interface TreeActions {
-  onUpdate: (id: string, patch: Partial<Pick<TaskTemplateItem, 'title' | 'startOffsetDays' | 'dueOffsetDays' | 'responsible'>>) => void
+  onUpdate: (id: string, patch: Partial<Pick<TaskTemplateItem, 'title' | 'startOffsetDays' | 'dueOffsetDays' | 'responsible' | 'fieldLabels'>>) => void
   onAddChild: (id: string) => void
   onAddSibling: (id: string) => void
   onMove: (id: string, direction: -1 | 1) => void
@@ -127,6 +127,55 @@ function DepartmentField({ id, name, value, departments, onChange }: { id: strin
   )
 }
 
+/** Table row labels: when present, the task starts as a table and the team fills in a value per label. */
+function FieldLabelsEditor({ base, name, labels, onChange }: { base: string; name: string; labels: string[]; onChange: (labels: string[]) => void }) {
+  const [focusIndex, setFocusIndex] = useState<number | null>(null)
+  const set = (k: number, v: string) => onChange(labels.map((l, j) => (j === k ? v : l)))
+  const add = () => {
+    setFocusIndex(labels.length)
+    onChange([...labels, ''])
+  }
+  return (
+    <div className="basis-full pl-8">
+      <div className="rounded-lg border bg-card p-2">
+        <p className="mb-1.5 flex items-center gap-1 text-[11px] text-muted-foreground">
+          <TableIcon className="size-3" aria-hidden />
+          ตารางข้อมูล — หัวข้อที่ทีมต้องกรอกใน Task นี้
+        </p>
+        <ol className="grid gap-1 sm:grid-cols-2">
+          {labels.map((label, k) => (
+            <li key={k} className="flex items-center gap-1">
+              <span className="tabular w-5 shrink-0 text-right text-[11px] text-muted-foreground">{k + 1}</span>
+              <Input
+                id={`${base}-field-${k}`}
+                value={label}
+                maxLength={DETAIL_LABEL_MAX}
+                placeholder="หัวข้อ เช่น ชื่อสินค้าภาษาไทย"
+                aria-label={`หัวข้อที่ ${k + 1} ของ ${name}`}
+                autoFocus={focusIndex === k}
+                onChange={(e) => set(k, e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                    e.preventDefault()
+                    if (labels.length < DETAIL_FIELDS_MAX) add()
+                  }
+                }}
+                className="h-7 bg-background text-sm"
+              />
+              <IconAction label={`ลบหัวข้อ ${label || k + 1}`} onClick={() => onChange(labels.filter((_, j) => j !== k))} className="size-7 text-muted-foreground hover:bg-danger-soft hover:text-danger">
+                <XIcon />
+              </IconAction>
+            </li>
+          ))}
+        </ol>
+        <Button type="button" variant="ghost" size="sm" className="mt-1 h-7 text-xs text-brand" onClick={add} disabled={labels.length >= DETAIL_FIELDS_MAX}>
+          <PlusIcon /> เพิ่มหัวข้อ
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function IconAction({ label, onClick, disabled, className, children }: { label: string; onClick: () => void; disabled?: boolean; className?: string; children: ReactNode }) {
   return (
     <Button type="button" variant="ghost" size="icon-sm" aria-label={label} title={label} onClick={onClick} disabled={disabled} className={className}>
@@ -149,6 +198,8 @@ function Row({ item, index, count, props }: { item: TaskTemplateItem; index: num
   const datesValid = Number.isInteger(item.startOffsetDays) && Number.isInteger(item.dueOffsetDays) && item.dueOffsetDays >= item.startOffsetDays
   const exampleStart = datesValid ? addDays(props.exampleLaunch, item.startOffsetDays) : null
   const exampleDue = datesValid ? addDays(props.exampleLaunch, item.dueOffsetDays) : null
+  const [tableOpen, setTableOpen] = useState(false)
+  const labelCount = item.fieldLabels.filter((l) => l.trim()).length
 
   return (
     <div
@@ -242,6 +293,22 @@ function Row({ item, index, count, props }: { item: TaskTemplateItem; index: num
           onChange={(v) => props.onUpdate(item.id, { responsible: v })}
         />
         <div className="flex items-center pb-0.5">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-expanded={tableOpen}
+            aria-label={labelCount ? `ตารางข้อมูล ${labelCount} หัวข้อของ ${name}` : `เพิ่มตารางข้อมูลให้ ${name}`}
+            title={labelCount ? `ตารางข้อมูล ${labelCount} หัวข้อ — คลิกเพื่อแก้ไข` : 'ให้ Task นี้เริ่มเป็นตารางข้อมูล (หัวข้อ → ข้อมูล)'}
+            onClick={() => {
+              if (!tableOpen && item.fieldLabels.length === 0) props.onUpdate(item.id, { fieldLabels: [''] })
+              setTableOpen((o) => !o)
+            }}
+            className={cn('tabular h-7 gap-1 px-1.5 text-xs', labelCount ? 'text-brand' : 'text-muted-foreground')}
+          >
+            <TableIcon />
+            {labelCount > 0 && labelCount}
+          </Button>
           <IconAction label={`เพิ่มงานย่อยใต้ ${name}`} onClick={() => props.onAddChild(item.id)} className={cn(item.level >= MAX_TASK_LEVEL && 'invisible')} disabled={item.level >= MAX_TASK_LEVEL}>
             <CornerDownRightIcon />
           </IconAction>
@@ -259,6 +326,8 @@ function Row({ item, index, count, props }: { item: TaskTemplateItem; index: num
           </IconAction>
         </div>
       </div>
+
+      {tableOpen && <FieldLabelsEditor base={base} name={name} labels={item.fieldLabels} onChange={(fieldLabels) => props.onUpdate(item.id, { fieldLabels })} />}
 
       {rowIssues.length > 0 && (
         <ul className="basis-full space-y-0.5 pl-8 text-xs text-danger">

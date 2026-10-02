@@ -79,12 +79,12 @@ Validation and error messages are Thai and are shown to users as-is. The web cli
 | GET | /task-templates/suggest | signed in | `?channel=&shelfTypeId=&storeId=` | `TaskTemplate` or empty (null). Candidates: active, `channel` = given or `null`, shelf/store `null` or matching; most specific wins (store +4, shelf +2, channel-specific +1), ties → oldest |
 | GET | /task-templates/:id | signed in | — | `TaskTemplate` |
 | GET | /task-templates/:id/preview | signed in | `?targetDate=YYYY-MM-DD&excluded=a,b` | `TemplatePreviewItem[]` |
-| POST | /task-templates | `template.manage` | `TemplateInput` (item ids may be client temp ids; server re-keys). `channel: null` = every channel; then `shelfTypeId` and `storeId` must be null (422) | `TaskTemplate` |
+| POST | /task-templates | `template.manage` | `TemplateInput` (item ids may be client temp ids; server re-keys; each item's optional `fieldLabels` = table row labels, trimmed, blanks dropped, max 100). `channel: null` = every channel; then `shelfTypeId` and `storeId` must be null (422) | `TaskTemplate` |
 | PATCH | /task-templates/:id | `template.manage` | `Partial<TemplateInput>` (items replace all; same `channel: null` rule on the resulting template) | `TaskTemplate` |
 | DELETE | /task-templates/:id | `template.manage` | — | `true` |
 | GET | /proposals | signed in (scope rules) | `?q&status&channel&storeId&shelfTypeId&ownerId&scope=mine\|all` | `ProposalListItem[]` |
 | GET | /proposals/:id | can view | — | `ProposalDetail` |
-| POST | /proposals | `proposal.create` | `CreateProposalInput` (one proposal per store). `targetDate` must be the 15th and not before today (422). Plan / template `responsible` → each task's `responsible` (description stays null) | `Proposal[]` |
+| POST | /proposals | `proposal.create` | `CreateProposalInput` (one proposal per store). `targetDate` must be the 15th and not before today (422). Plan / template `responsible` → each task's `responsible`; plan / template `fieldLabels` → the task starts as a table (`descriptionFormat: FIELDS`, one empty row per label), otherwise description stays null | `Proposal[]` |
 | PATCH | /proposals/:id | owner or `proposal.update.any` | `UpdateProposalInput` | `Proposal` |
 | POST | /proposals/:id/status | owner or `proposal.update.any` | `{ status }` | `Proposal` |
 | POST | /proposals/:id/target-date | owner or `proposal.update.any` | `{ targetDate, shiftTasks }` — `targetDate` must be the 15th (422) | `Proposal` |

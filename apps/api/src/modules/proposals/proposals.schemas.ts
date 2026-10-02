@@ -65,6 +65,8 @@ const planItemSchema = z.object(
     dueDate: zPlanDate,
     /** Responsible department → tasks.responsible. */
     responsible: zResponsible,
+    /** Table row labels from the template → the task starts as a table (normalizePlan cleans them). */
+    fieldLabels: z.array(z.string({ message: 'หัวข้อในตารางไม่ถูกต้อง' }).max(1000, 'หัวข้อในตารางยาวเกินไป'), { message: 'หัวข้อในตารางไม่ถูกต้อง' }).max(500, 'ตารางมีแถวมากเกินไป').optional(),
   },
   { message: 'รายการงานไม่ถูกต้อง' },
 )

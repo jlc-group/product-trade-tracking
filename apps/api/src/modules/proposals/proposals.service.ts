@@ -41,6 +41,7 @@ interface PlanRow {
   startDate: ISODate | null
   dueDate: ISODate | null
   responsible: string | null
+  fieldLabels: string[]
   sortOrder: number
 }
 
@@ -121,7 +122,7 @@ export class ProposalsService {
         } catch (e) {
           throw invalid(e instanceof Error ? e.message : 'รายการงานไม่ถูกต้อง')
         }
-        plan = normalized.map((p) => ({ key: p.key, parentKey: p.parentKey, title: p.title, startDate: p.startDate, dueDate: p.dueDate, responsible: p.responsible, sortOrder: p.sortOrder }))
+        plan = normalized.map((p) => ({ key: p.key, parentKey: p.parentKey, title: p.title, startDate: p.startDate, dueDate: p.dueDate, responsible: p.responsible, fieldLabels: p.fieldLabels, sortOrder: p.sortOrder }))
       } else if (template) {
         plan = planFromTemplate(template.items, input.targetDate, today, input.excludedTemplateItemIds ?? []).map((p) => ({
           key: p.templateItemId,
@@ -130,6 +131,7 @@ export class ProposalsService {
           startDate: p.startDate,
           dueDate: p.dueDate,
           responsible: p.responsible,
+          fieldLabels: p.fieldLabels,
           sortOrder: p.sortOrder,
         }))
       } else {
@@ -181,6 +183,9 @@ export class ProposalsService {
               level,
               title: p.title,
               description: null,
+              // Template table labels → empty label → value rows the team fills in.
+              descriptionFormat: p.fieldLabels.length > 0 ? ('FIELDS' as const) : ('TEXT' as const),
+              detailFields: detailFieldsJson(p.fieldLabels.map((label) => ({ id: randomUUID(), label, value: '' }))),
               startDate: fromDateOnly(p.startDate),
               dueDate: fromDateOnly(p.dueDate),
               responsible: p.responsible,

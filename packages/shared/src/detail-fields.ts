@@ -78,6 +78,13 @@ export function applyDetailPatch(current: DetailField[], patch: DetailFieldsPatc
   return { fields, missing: [...new Set(missing)] }
 }
 
+/** Table labels as a template stores them: trimmed, blanks dropped, capped like task rows. */
+export function cleanFieldLabels(labels: readonly unknown[] | null | undefined): string[] {
+  return (labels ?? [])
+    .flatMap((l) => (typeof l === 'string' && l.trim() ? [l.trim().slice(0, DETAIL_LABEL_MAX)] : []))
+    .slice(0, DETAIL_FIELDS_MAX)
+}
+
 /** Defensive read of the stored JSON (anything that isn't a well-formed row is skipped). */
 export function readDetailFields(json: unknown): DetailField[] {
   if (!Array.isArray(json)) return []

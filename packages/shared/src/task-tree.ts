@@ -1,4 +1,5 @@
 import { MAX_TASK_LEVEL } from './labels.js'
+import { cleanFieldLabels } from './detail-fields.js'
 import type { ISODate, Progress, Task, TaskLevel, TaskNode, TaskTemplateItem } from './types.js'
 
 // ---------- date-only helpers (no timezone drift: work in UTC on YYYY-MM-DD) ----------
@@ -190,6 +191,7 @@ export interface PlannedTask {
   startDate: ISODate
   dueDate: ISODate
   responsible: string | null
+  fieldLabels: string[]
   sortOrder: number
   /** true when the template wanted a start date earlier than today and it was clamped. */
   clamped: boolean
@@ -243,6 +245,7 @@ export function planFromTemplate(
         startDate: start,
         dueDate: due,
         responsible: i.responsible,
+        fieldLabels: i.fieldLabels,
         sortOrder: i.sortOrder,
         clamped,
       }
@@ -265,6 +268,8 @@ export interface NormalizedPlanItem {
   startDate: ISODate | null
   dueDate: ISODate | null
   responsible: string | null
+  /** Table row labels for the new task ([] = free-text details). */
+  fieldLabels: string[]
   sortOrder: number
 }
 
@@ -273,7 +278,7 @@ export interface NormalizedPlanItem {
  * (1000, 2000, …). Throws an Error with a Thai message when the plan is invalid.
  */
 export function normalizePlan(
-  plan: { key: string; parentKey: string | null; title: string; startDate: ISODate | null; dueDate: ISODate | null; responsible?: string | null }[],
+  plan: { key: string; parentKey: string | null; title: string; startDate: ISODate | null; dueDate: ISODate | null; responsible?: string | null; fieldLabels?: string[] }[],
 ): NormalizedPlanItem[] {
   if (plan.length > 500) throw new Error('รายการงานมากเกินไป (สูงสุด 500 งาน)')
   const keys = new Set<string>()
@@ -308,6 +313,7 @@ export function normalizePlan(
       startDate: p.startDate,
       dueDate: p.dueDate,
       responsible: p.responsible?.trim() || null,
+      fieldLabels: cleanFieldLabels(p.fieldLabels),
       sortOrder: n * 1000,
     }
   })

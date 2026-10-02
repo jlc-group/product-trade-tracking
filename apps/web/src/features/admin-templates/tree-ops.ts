@@ -1,5 +1,5 @@
 // Pure helpers for editing a template's flat item list (parentId + sortOrder, max 3 levels).
-import { DEFAULT_DEPARTMENTS, getDescendantIds, MAX_TASK_LEVEL, PREP_DAYS, type TaskLevel, type TaskTemplateItem } from '@flowtrade/shared'
+import { cleanFieldLabels, DEFAULT_DEPARTMENTS, getDescendantIds, MAX_TASK_LEVEL, PREP_DAYS, type TaskLevel, type TaskTemplateItem } from '@flowtrade/shared'
 
 export type Items = TaskTemplateItem[]
 
@@ -55,7 +55,7 @@ function applyOrder(items: Items, orderedIds: string[]): Items {
 }
 
 function blankItem(parentId: string | null, level: TaskLevel, start: number, due: number, responsible: string | null): TaskTemplateItem {
-  return { id: newItemId(), parentId, level, title: '', startOffsetDays: start, dueOffsetDays: due, responsible, sortOrder: 0 }
+  return { id: newItemId(), parentId, level, title: '', startOffsetDays: start, dueOffsetDays: due, responsible, fieldLabels: [], sortOrder: 0 }
 }
 
 /** Appends a top-level Task after the last one; it starts where the previous one ended. */
@@ -128,7 +128,7 @@ export function normalizeItems(items: Items): Items {
   const out: Items = []
   const walk = (parentId: string | null, depth: number) => {
     ;(map.get(parentId) ?? []).forEach((item, k) => {
-      out.push({ ...item, level: Math.min(depth, MAX_TASK_LEVEL) as TaskLevel, sortOrder: (k + 1) * 1000, title: item.title.trim(), responsible: item.responsible?.trim() || null })
+      out.push({ ...item, level: Math.min(depth, MAX_TASK_LEVEL) as TaskLevel, sortOrder: (k + 1) * 1000, title: item.title.trim(), responsible: item.responsible?.trim() || null, fieldLabels: cleanFieldLabels(item.fieldLabels) })
       if (depth < MAX_TASK_LEVEL + 1) walk(item.id, depth + 1)
     })
   }
@@ -225,6 +225,6 @@ export function cloneItems(items: Items): Items {
 
 export function starterItems(): Items {
   return [
-    { id: newItemId(), parentId: null, level: 1, title: 'เตรียมข้อมูลสินค้าสำหรับเสนอห้าง', startOffsetDays: PREP_START_OFFSET, dueOffsetDays: PREP_DUE_OFFSET, responsible: null, sortOrder: 1000 },
+    { id: newItemId(), parentId: null, level: 1, title: 'เตรียมข้อมูลสินค้าสำหรับเสนอห้าง', startOffsetDays: PREP_START_OFFSET, dueOffsetDays: PREP_DUE_OFFSET, responsible: null, fieldLabels: [], sortOrder: 1000 },
   ]
 }

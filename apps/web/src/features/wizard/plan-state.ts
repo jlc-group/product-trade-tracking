@@ -11,6 +11,8 @@ export interface PlanItem {
   startOffset: number
   dueOffset: number
   responsible: string | null
+  /** Table row labels from the template ([] = free-text details). */
+  fieldLabels: string[]
   /** Typed by the user (not from the template). */
   custom: boolean
 }
@@ -76,7 +78,7 @@ export function planReducer(state: PlanState, action: PlanAction): PlanState {
     case 'plan/load': {
       const fromTemplate: PlanItem[] = [...action.items]
         .sort((a, b) => a.level - b.level || a.sortOrder - b.sortOrder)
-        .map((i) => ({ key: i.id, parentKey: i.parentId, title: i.title, startOffset: i.startOffsetDays, dueOffset: i.dueOffsetDays, responsible: i.responsible, custom: false }))
+        .map((i) => ({ key: i.id, parentKey: i.parentId, title: i.title, startOffset: i.startOffsetDays, dueOffset: i.dueOffsetDays, responsible: i.responsible, fieldLabels: i.fieldLabels, custom: false }))
       const templateKeys = new Set(fromTemplate.map((i) => i.key))
       const prevCustom = action.keepCustom ? state.items.filter((i) => i.custom) : []
       const customKeys = new Set(prevCustom.map((i) => i.key))
@@ -206,6 +208,7 @@ export function toPlanInput(rows: PlanRow[]): ProposalPlanItemInput[] {
       startDate: r.startDate,
       dueDate: r.dueDate,
       responsible: r.responsible?.trim() || null,
+      ...(r.fieldLabels.length > 0 ? { fieldLabels: r.fieldLabels } : {}),
     }))
 }
 
