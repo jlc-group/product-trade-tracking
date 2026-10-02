@@ -80,7 +80,7 @@ export async function resetToEmpty(prisma: PrismaService, adminSignIn?: string):
 // CLI entry point
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   if (!process.argv.includes('--yes')) {
-    console.error(`This permanently deletes all FlowTrade data in schema "${config.dbSchema}" except the admin account and the shelf types ${KEEP_SHELF_TYPES.join(' / ')}.\nRe-run with --yes to continue.`)
+    console.error(`This permanently deletes all Trade Listing data in schema "${config.dbSchema}" except the admin account and the shelf types ${KEEP_SHELF_TYPES.join(' / ')}.\nRe-run with --yes to continue.`)
     process.exit(1)
   }
   const adminArg = process.argv.find((a) => a.startsWith('--admin='))?.slice('--admin='.length)
@@ -90,7 +90,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     const file = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.admin-initial-password')
     writeFileSync(
       file,
-      `# FlowTrade first sign-in — delete this file after changing the password.\nsign in as: ${summary.keptAdmin}\ntemporary password: ${tempPassword}\n`,
+      `# Trade Listing first sign-in — delete this file after changing the password.\nsign in as: ${summary.keptAdmin}\ntemporary password: ${tempPassword}\n`,
       { mode: 0o600 },
     )
     console.log(`Schema "${config.dbSchema}" is now empty and ready:`, JSON.stringify(summary, null, 2))

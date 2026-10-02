@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { APP_NAME } from '@/lib/brand'
 import type { IssuedPassword } from './roles'
 
 async function copyText(text: string): Promise<boolean> {
@@ -29,7 +30,7 @@ export function TempPasswordPanel({ issued }: { issued: IssuedPassword }) {
     const text =
       what === 'password'
         ? issued.tempPassword
-        : [`เข้าสู่ระบบ FlowTrade ที่ ${window.location.origin}/login`, `${issued.user.username ? 'ชื่อผู้ใช้' : 'อีเมล'}: ${signInName(issued.user)}`, `รหัสผ่านชั่วคราว: ${issued.tempPassword}`, 'ระบบจะให้ตั้งรหัสผ่านใหม่เมื่อเข้าสู่ระบบครั้งแรก'].join('\n')
+        : [`เข้าสู่ระบบ ${APP_NAME} ที่ ${window.location.origin}/login`, `${issued.user.username ? 'ชื่อผู้ใช้' : 'อีเมล'}: ${signInName(issued.user)}`, `รหัสผ่านชั่วคราว: ${issued.tempPassword}`, 'ระบบจะให้ตั้งรหัสผ่านใหม่เมื่อเข้าสู่ระบบครั้งแรก'].join('\n')
     if (await copyText(text)) {
       setCopied(what)
       toast.success(what === 'password' ? 'คัดลอกรหัสผ่านแล้ว' : 'คัดลอกข้อมูลเข้าสู่ระบบแล้ว — วางส่งให้ผู้ใช้ได้เลย')

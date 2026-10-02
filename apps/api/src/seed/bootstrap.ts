@@ -52,7 +52,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
       console.log(`  admin created: ${result.admin.email}`)
       if (result.admin.tempPassword) {
         const file = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.admin-initial-password')
-        writeFileSync(file, `# FlowTrade first sign-in — delete this file after changing the password.\nemail: ${result.admin.email}\ntemporary password: ${result.admin.tempPassword}\n`, { mode: 0o600 })
+        writeFileSync(file, `# Trade Listing first sign-in — delete this file after changing the password.\nemail: ${result.admin.email}\ntemporary password: ${result.admin.tempPassword}\n`, { mode: 0o600 })
         console.log(`  temporary password written to ${file} (must be changed at first sign-in)`)
       }
     } else {

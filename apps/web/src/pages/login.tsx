@@ -6,6 +6,7 @@ import { useAuth } from '@/auth/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { APP_MARK, APP_NAME } from '@/lib/brand'
 
 const HIGHLIGHTS = [
   'เลือกห้าง ประเภท Shelf และวันวางขาย แล้วได้รายการงานอัตโนมัติ',
@@ -47,8 +48,8 @@ export default function LoginPage() {
     <div className="grid min-h-svh bg-background lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
       <aside className="relative hidden overflow-hidden bg-sidebar p-10 text-sidebar-foreground lg:flex lg:flex-col">
         <div className="flex items-center gap-3">
-          <span className="flex size-10 items-center justify-center rounded-xl bg-sidebar-primary text-base font-bold text-white">FT</span>
-          <span className="text-lg font-semibold text-white">FlowTrade</span>
+          <span className="flex size-10 items-center justify-center rounded-xl bg-sidebar-primary text-base font-bold text-white">{APP_MARK}</span>
+          <span className="text-lg font-semibold text-white">{APP_NAME}</span>
         </div>
         <div className="mt-auto max-w-md space-y-6">
           <h1 className="text-3xl leading-snug font-semibold text-white">จากการเสนอสินค้า ถึงวันที่สินค้าอยู่บนชั้นวาง</h1>
@@ -68,8 +69,8 @@ export default function LoginPage() {
         <div className="w-full max-w-md space-y-8">
           <div className="space-y-2">
             <div className="flex items-center gap-2 lg:hidden">
-              <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">FT</span>
-              <span className="font-semibold">FlowTrade</span>
+              <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">{APP_MARK}</span>
+              <span className="font-semibold">{APP_NAME}</span>
             </div>
             <h2 className="text-2xl font-semibold tracking-tight">เข้าสู่ระบบ</h2>
             <p className="text-sm text-muted-foreground">ใช้บัญชีที่ผู้ดูแลระบบสร้างให้ หากยังไม่มีบัญชี กรุณาติดต่อผู้ดูแลระบบ</p>

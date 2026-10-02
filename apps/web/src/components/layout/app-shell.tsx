@@ -51,6 +51,7 @@ import {
   SidebarTrigger,
   useSidebar,
 } from '@/components/ui/sidebar'
+import { APP_MARK, APP_NAME } from '@/lib/brand'
 import { fromNow } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -213,9 +214,9 @@ export function AppShell() {
             <SidebarMenuItem>
               <SidebarMenuButton size="lg" asChild className="hover:bg-transparent">
                 <Link to="/">
-                  <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary text-sm font-bold text-sidebar-primary-foreground">FT</span>
+                  <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary text-sm font-bold text-sidebar-primary-foreground">{APP_MARK}</span>
                   <span className="grid leading-tight">
-                    <span className="text-base font-semibold text-sidebar-accent-foreground">FlowTrade</span>
+                    <span className="text-base font-semibold text-sidebar-accent-foreground">{APP_NAME}</span>
                     <span className="text-[11px] text-sidebar-foreground/60">ระบบงานเสนอสินค้าเข้าห้าง</span>
                   </span>
                 </Link>

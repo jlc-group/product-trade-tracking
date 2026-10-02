@@ -8,6 +8,7 @@ import { PageHeader } from '@/components/common/misc'
 import { UserAvatar } from '@/components/common/user-avatar'
 import { Button } from '@/components/ui/button'
 import { PasswordChangeForm } from '@/features/my-work/password-form'
+import { APP_MARK, APP_NAME } from '@/lib/brand'
 
 /** Rendered outside the app shell: users with an admin-issued temporary password land here first. */
 export default function ChangePasswordPage() {
@@ -31,8 +32,8 @@ export default function ChangePasswordPage() {
     <div className="flex min-h-svh flex-col items-center justify-center bg-background px-4 py-10">
       <div className="w-full max-w-md space-y-6">
         <div className="flex items-center justify-center gap-2">
-          <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">FT</span>
-          <span className="font-semibold">FlowTrade</span>
+          <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">{APP_MARK}</span>
+          <span className="font-semibold">{APP_NAME}</span>
         </div>
 
         <main className="space-y-6 rounded-2xl border bg-card p-6 shadow-sm sm:p-8">
@@ -65,7 +66,7 @@ export default function ChangePasswordPage() {
             autoFocus
             submitClassName="sm:w-full"
             onSuccess={() => {
-              toast.success(forced ? 'ตั้งรหัสผ่านใหม่เรียบร้อยแล้ว ยินดีต้อนรับสู่ FlowTrade' : 'เปลี่ยนรหัสผ่านเรียบร้อยแล้ว')
+              toast.success(forced ? `ตั้งรหัสผ่านใหม่เรียบร้อยแล้ว ยินดีต้อนรับสู่ ${APP_NAME}` : 'เปลี่ยนรหัสผ่านเรียบร้อยแล้ว')
               navigate('/', { replace: true })
             }}
           />
