@@ -45,6 +45,9 @@ const ROW_GRID = '@4xl:grid-cols-[minmax(0,1.7fr)_8.5rem_13.5rem_minmax(6rem,1fr
 
 const pct = (scale: Scale, date: ISODate) => (diffDays(scale.start, date) / scale.days) * 100
 
+/** The task will start as a table, so its row labels are listed under it (what to prepare). */
+const showsFields = (row: PlanRow) => row.fieldLabels.length > 0 && !row.excluded
+
 /** Stops the wizard's global "Enter = next step" while typing here. */
 const swallowEnter = (e: KeyboardEvent, onEnter?: () => void) => {
   if (e.key !== 'Enter' || e.nativeEvent.isComposing) return
@@ -85,7 +88,7 @@ export function TimelineEditor({
   edited: boolean
   onReset: (() => void) | null
   dateLabel: string
-  /** Main tasks start expanded so their sub tasks are visible right away. */
+  /** Main tasks (and table tasks) start expanded so their sub tasks and table labels are visible right away. */
   expandMainTasks?: boolean
 }) {
   const listId = useId()
@@ -114,11 +117,12 @@ export function TimelineEditor({
   const customCount = included.filter((r) => r.custom).length
   const clampedCount = included.filter((r) => r.clamped).length
   const deptCounts = departmentCounts(included.map((r) => r.responsible))
+  const fieldCount = included.reduce((n, r) => n + r.fieldLabels.length, 0)
 
-  const parents = rows.filter((r) => r.childCount > 0)
-  const isOpen = (row: PlanRow) => openState[row.key] ?? (expandMainTasks && row.level === 1)
-  const allOpen = parents.length > 0 && parents.every(isOpen)
-  const setAll = (open: boolean) => setOpenState(Object.fromEntries(parents.map((r) => [r.key, open])))
+  const expandable = rows.filter((r) => r.childCount > 0 || showsFields(r))
+  const isOpen = (row: PlanRow) => openState[row.key] ?? (expandMainTasks && (row.level === 1 || showsFields(row)))
+  const allOpen = expandable.length > 0 && expandable.every(isOpen)
+  const setAll = (open: boolean) => setOpenState(Object.fromEntries(expandable.map((r) => [r.key, open])))
   const toggle = (row: PlanRow) => setOpenState((prev) => ({ ...prev, [row.key]: !isOpen(row) }))
   const startAdd = (row: PlanRow) => {
     setOpenState((prev) => ({ ...prev, [row.key]: true }))
@@ -136,6 +140,7 @@ export function TimelineEditor({
           row={row}
           open={open}
           hasChildren={kids.length > 0}
+          expandable={kids.length > 0 || showsFields(row)}
           onToggle={() => toggle(row)}
           onAddChild={row.level < 3 ? () => startAdd(row) : null}
           dispatch={dispatch}
@@ -148,6 +153,7 @@ export function TimelineEditor({
           canMoveUp={index > 0}
           canMoveDown={index < siblings.length - 1}
         />
+        {open && showsFields(row) && <FieldLabelsPreview row={row} />}
         {open && (
           <ul className="space-y-px">
             {kids.map(renderRow)}
@@ -200,7 +206,7 @@ export function TimelineEditor({
               แม่แบบ: {templateName}
             </span>
           )}
-          {parents.length > 0 && (
+          {expandable.length > 0 && (
             <Button type="button" variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setAll(!allOpen)}>
               {allOpen ? <ChevronsDownUpIcon /> : <ChevronsUpDownIcon />}
               {allOpen ? 'ย่อทั้งหมด' : 'ขยายทั้งหมด'}
@@ -260,6 +266,7 @@ export function TimelineEditor({
         <span>
           Task {counts[1]} · Sub task {counts[2]} · Mini task {counts[3]}
         </span>
+        {fieldCount > 0 && <span>ข้อมูลที่ต้องเตรียม {fieldCount} หัวข้อ</span>}
         {customCount > 0 && <span className="text-brand">เพิ่มเอง {customCount} งาน</span>}
         {rows.length - included.length > 0 && <span>ไม่ใช้ {rows.length - included.length} งาน</span>}
         {deptCounts.list.length > 0 && (
@@ -428,6 +435,7 @@ function TimelineRow({
   row,
   open,
   hasChildren,
+  expandable,
   onToggle,
   onAddChild,
   dispatch,
@@ -443,6 +451,8 @@ function TimelineRow({
   row: PlanRow
   open: boolean
   hasChildren: boolean
+  /** Has sub tasks or table labels to show below it. */
+  expandable: boolean
   onToggle: () => void
   onAddChild: (() => void) | null
   dispatch: Dispatch<PlanAction>
@@ -463,6 +473,7 @@ function TimelineRow({
   const prepLeft = Math.max(0, pct(scale, prepStart))
   const launch = pct(scale, targetDate)
   const afterLaunch = row.dueDate > targetDate && row.startDate < targetDate && !row.excluded
+  const inside = [hasChildren && 'งานย่อย', showsFields(row) && 'ข้อมูลที่ต้องเตรียม'].filter(Boolean).join('และ')
 
   const setStart = (d: ISODate) => dispatch({ type: 'plan/shift', key: row.key, days: offsetFor(targetDate, d) - offsetFor(targetDate, row.startDate) })
   const setDue = (d: ISODate) => dispatch({ type: 'plan/update', key: row.key, patch: { startOffset: offsetFor(targetDate, row.startDate), dueOffset: offsetFor(targetDate, d) } })
@@ -483,12 +494,12 @@ function TimelineRow({
     >
       {/* Title */}
       <div className="flex min-w-0 flex-1 basis-64 items-center gap-1" style={{ paddingLeft: `${(row.level - 1) * 1.25}rem` }}>
-        {hasChildren ? (
+        {expandable ? (
           <button
             type="button"
             onClick={onToggle}
             aria-expanded={open}
-            aria-label={`${open ? 'ย่อ' : 'ขยาย'}งานย่อยของ ${name}`}
+            aria-label={`${open ? 'ย่อ' : 'ขยาย'}${inside}ของ ${name}`}
             className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             <ChevronRightIcon className={cn('size-4 transition-transform', open && 'rotate-90')} />
@@ -626,6 +637,31 @@ function TimelineRow({
               </DropdownMenuContent>
             </DropdownMenu>
           )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Read-only list of the table rows the task starts with, so whoever creates the project sees what to prepare. */
+function FieldLabelsPreview({ row }: { row: PlanRow }) {
+  return (
+    <div className={cn('px-1 pb-1.5 @4xl:grid @4xl:gap-x-2', ROW_GRID)}>
+      <div className="@4xl:col-span-3" style={{ paddingLeft: `${row.level * 1.25 + 0.25}rem` }}>
+        <div className="overflow-hidden rounded-lg border bg-card">
+          <p className="flex flex-wrap items-center gap-x-1.5 border-b bg-muted/50 px-3 py-1.5 text-[11px] text-muted-foreground">
+            <TableIcon className="size-3" aria-hidden />
+            <span className="font-medium text-foreground">ข้อมูลที่ต้องเตรียม {row.fieldLabels.length} หัวข้อ</span>
+            <span>· กรอกในตารางของงานนี้หลังสร้างโปรเจกต์</span>
+          </p>
+          <ol className="grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] gap-x-4 gap-y-1 px-3 py-2" aria-label={`ข้อมูลที่ต้องเตรียมของ ${row.title || 'งานนี้'}`}>
+            {row.fieldLabels.map((label, i) => (
+              <li key={i} className="flex min-w-0 items-baseline gap-1.5 text-xs">
+                <span className="tabular min-w-4 shrink-0 text-right text-[10px] text-muted-foreground">{i + 1}</span>
+                <span className="min-w-0 break-words">{label}</span>
+              </li>
+            ))}
+          </ol>
         </div>
       </div>
     </div>
