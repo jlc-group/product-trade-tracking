@@ -81,13 +81,14 @@ export interface Product {
   updatedAt: ISODateTime
 }
 
-/** One listing project: products → one store → one shelf type → target on-shelf date. */
+/** One listing project: products → one or more stores (one shared task list) → one shelf type → target on-shelf date. */
 export interface Proposal {
   id: string
   code: string
   title: string
   channel: Channel
-  storeId: string
+  /** At least one, in the admin-defined store order. Only ADMIN can change them after creation. */
+  storeIds: string[]
   shelfTypeId: string
   targetDate: ISODate
   status: ProposalStatus

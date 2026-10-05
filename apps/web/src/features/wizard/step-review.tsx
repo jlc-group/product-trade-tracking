@@ -59,14 +59,14 @@ export function StepReview({
   const template = templates.find((t) => t.id === effectiveTemplateId) ?? (suggested?.id === effectiveTemplateId ? suggested : null)
   const lead = template ? templateLeadDays(template.items) : 0
   const remaining = state.targetDate ? daysUntil(state.targetDate) : 0
-  const placeholder = autoTitle(state.products, stores[0]?.name) || 'ตั้งชื่อโปรเจกต์'
+  const placeholder = autoTitle(state.products, stores) || 'ตั้งชื่อโปรเจกต์'
 
   return (
     <div className="space-y-5">
       {/* What will be created */}
       <section className="rounded-xl border border-brand/20 bg-brand-soft/70 p-4" aria-label="สรุปสิ่งที่จะสร้าง">
         <p className="text-base font-semibold text-brand">
-          จะสร้าง <span className="tabular">{stores.length}</span> โปรเจกต์: {stores.map((s) => s.name).join(', ')}
+          จะสร้าง 1 โปรเจกต์ สำหรับ{stores.length > 1 ? <> <span className="tabular">{stores.length}</span> {unit}</> : unit}: {stores.map((s) => s.name).join(', ')}
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           {stores.map((s) => (
@@ -92,7 +92,7 @@ export function StepReview({
             </>
           )}
           <span aria-hidden>·</span>
-          <span>{plan.items.length > 0 ? `${plan.count.total} งาน${stores.length > 1 ? 'ต่อโปรเจกต์' : ''}` : 'เริ่มจากรายการว่าง'}</span>
+          <span>{plan.items.length > 0 ? `${plan.count.total} งาน${stores.length > 1 ? ` ใช้ร่วมกันทุก${unit}` : ''}` : 'เริ่มจากรายการว่าง'}</span>
         </p>
       </section>
 
@@ -158,7 +158,7 @@ export function StepReview({
             <div className="flex flex-wrap items-baseline justify-between gap-2 border-t pt-4" aria-live="polite">
               <p className="text-sm">
                 จะสร้าง <span className="tabular text-base font-semibold text-primary">{plan.count.total}</span> งาน
-                {stores.length > 1 && <span className="text-muted-foreground"> ต่อโปรเจกต์</span>}
+                {stores.length > 1 && <span className="text-muted-foreground"> ใช้ร่วมกันทุก{unit}</span>}
               </p>
               <p className="tabular text-xs text-muted-foreground">
                 Task {plan.count.byLevel[1]} · Sub task {plan.count.byLevel[2]} · Mini task {plan.count.byLevel[3]}
@@ -200,11 +200,7 @@ export function StepReview({
             aria-describedby={`${id}-title-hint`}
           />
           <p id={`${id}-title-hint`} className="text-xs text-muted-foreground">
-            {stores.length > 1
-              ? state.title.trim()
-                ? `ระบบจะต่อท้ายด้วยชื่อ${unit} เช่น “${state.title.trim()} — ${stores[0].name}”`
-                : `เว้นว่างไว้ ระบบจะตั้งชื่อแยกให้${unit}ละชื่อ เช่น “${placeholder}”`
-              : 'เว้นว่างไว้ ระบบจะใช้ชื่อตามตัวอย่างในช่อง'}
+            เว้นว่างไว้ ระบบจะใช้ชื่อตามตัวอย่างในช่อง
           </p>
         </div>
 

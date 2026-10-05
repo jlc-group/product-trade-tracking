@@ -1,5 +1,5 @@
 // State of the new-proposal wizard: one reducer, pure helpers for validation and derived values.
-import { CHANNEL_TERMS, isLaunchDate, LAUNCH_DAY_OF_MONTH, PREP_DAYS, type Channel, type ISODate, type Product } from '@flowtrade/shared'
+import { autoProposalTitle, CHANNEL_TERMS, isLaunchDate, LAUNCH_DAY_OF_MONTH, PREP_DAYS, type Channel, type ISODate, type Product, type Store } from '@flowtrade/shared'
 import { initialPlanState, planReducer, type PlanAction, type PlanState } from './plan-state'
 
 export type ProposalStartStatus = 'DRAFT' | 'IN_PROGRESS'
@@ -165,11 +165,12 @@ export function isDirty(state: WizardState) {
   return !!state.channel || state.products.length > 0 || !!state.targetDate || !!state.title.trim() || !!state.note.trim() || state.memberIds.length > 0
 }
 
-/** The title the server generates when none is given (for the first store). */
-export function autoTitle(products: Pick<Product, 'name'>[], storeName: string | undefined) {
-  if (products.length === 0) return ''
-  const head = `${products[0].name}${products.length > 1 ? ` +${products.length - 1}` : ''}`
-  return storeName ? `${head} → ${storeName}` : head
+/** The title the server generates when none is given. */
+export function autoTitle(products: Pick<Product, 'name'>[], stores: Pick<Store, 'name'>[]) {
+  return autoProposalTitle(
+    products.map((p) => p.name),
+    stores.map((s) => s.name),
+  )
 }
 
 /** Resolves the template choice against the server suggestion. */

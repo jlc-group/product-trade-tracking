@@ -31,7 +31,7 @@ export class ProposalsController {
     private readonly reports: ProposalReportService,
   ) {}
 
-  /** ?q&status&channel&storeId&shelfTypeId&ownerId&scope=mine|all — sorted by targetDate. */
+  /** ?q&status&channel&storeId (any of its stores)&shelfTypeId&ownerId&scope=mine|all — sorted by targetDate. */
   @Get()
   list(@CurrentUser() user: User, @Query(new ZodPipe(listQuerySchema)) q: ProposalListQuery): Promise<ProposalListItem[]> {
     return this.read.list(this.prisma, user, q)
@@ -48,10 +48,10 @@ export class ProposalsController {
     return this.reports.report(user, id)
   }
 
-  /** Wizard submit — one proposal per store. */
+  /** Wizard submit — one proposal listed at every selected store. */
   @RequirePermission('proposal.create')
   @Post()
-  create(@CurrentUser() user: User, @Body(new ZodPipe(createProposalSchema)) body: CreateProposalBody): Promise<Proposal[]> {
+  create(@CurrentUser() user: User, @Body(new ZodPipe(createProposalSchema)) body: CreateProposalBody): Promise<Proposal> {
     return this.proposals.create(user, body)
   }
 

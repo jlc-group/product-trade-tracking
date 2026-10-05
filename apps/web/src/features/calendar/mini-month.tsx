@@ -8,7 +8,7 @@ const MAX_DOTS = 4
 
 function Dots({ bucket, today }: { bucket: DayBucket; today: ISODate }) {
   const dots = [
-    ...bucket.launches.map((p) => ({ key: p.id, style: { backgroundColor: p.store.color }, className: 'rounded-[2px]' })),
+    ...bucket.launches.map((p) => ({ key: p.id, style: { backgroundColor: p.stores[0].color }, className: 'rounded-[2px]' })),
     ...bucket.tasks.map((t) => ({ key: t.task.id, style: undefined, className: cn('rounded-full', TASK_DOT[taskTone(t.task, today)]) })),
   ]
   const shown = dots.slice(0, MAX_DOTS)

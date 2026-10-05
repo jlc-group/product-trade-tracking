@@ -73,7 +73,7 @@ function RescheduleForm({ proposal, onDone }: { proposal: ProposalDetail; onDone
       <DialogHeader>
         <DialogTitle>เลื่อน{word}</DialogTitle>
         <DialogDescription>
-          {proposal.code} · {proposal.store.name} — ระบบจะบันทึกการเลื่อนไว้ในประวัติให้ทีมเห็น
+          {proposal.code} · {proposal.stores.map((s) => s.name).join(', ')} — ระบบจะบันทึกการเลื่อนไว้ในประวัติให้ทีมเห็น
         </DialogDescription>
       </DialogHeader>
 
@@ -92,7 +92,7 @@ function RescheduleForm({ proposal, onDone }: { proposal: ProposalDetail; onDone
             {word}เดิม ({formatDate(proposal.targetDate, { long: true })}) ไม่ใช่วันที่ {LAUNCH_DAY_OF_MONTH} — เลือกเดือนเพื่อปรับให้ตรงรอบ{word}
           </p>
         )}
-        <LaunchMonthPicker value={date} onChange={setDate} today={t} storeIds={[proposal.storeId]} excludeProposalId={proposal.id} compact />
+        <LaunchMonthPicker value={date} onChange={setDate} today={t} storeIds={proposal.storeIds} excludeProposalId={proposal.id} compact />
       </div>
 
       <LaunchCompare word={word} from={proposal.targetDate} to={date} today={t} />

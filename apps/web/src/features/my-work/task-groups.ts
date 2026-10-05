@@ -11,7 +11,7 @@ export interface TaskGroup {
   tone: GroupTone
   items: TaskWithContext[]
   /** Set when grouped by project. */
-  project?: { id: string; code: string; title: string; store: Store }
+  project?: { id: string; code: string; title: string; stores: Store[] }
 }
 
 type DueBucket = 'overdue' | 'past' | 'today' | 'tomorrow' | 'week' | 'later' | 'none'
@@ -71,7 +71,7 @@ export function groupByProject(items: TaskWithContext[], isDone: (item: TaskWith
       title: item.proposal.title,
       tone: 'default',
       items: [item],
-      project: { id: item.proposal.id, code: item.proposal.code, title: item.proposal.title, store: item.store },
+      project: { id: item.proposal.id, code: item.proposal.code, title: item.proposal.title, stores: item.stores },
     })
   }
   const earliest = (g: TaskGroup) => g.items.reduce((min, i) => (i.task.dueDate && i.task.dueDate < min ? i.task.dueDate : min), '9999-12-31')
@@ -83,11 +83,11 @@ export function groupByProject(items: TaskWithContext[], isDone: (item: TaskWith
     .sort((a, b) => earliest(a).localeCompare(earliest(b)))
 }
 
-/** Case-insensitive match over the task (incl. its department), its path, project and store. */
+/** Case-insensitive match over the task (incl. its department), its path, project and stores. */
 export function matchesQuery(item: TaskWithContext, q: string) {
   const needle = q.trim().toLowerCase()
   if (!needle) return true
-  return [item.task.title, item.task.description ?? '', ...item.task.detailFields.flatMap((f) => [f.label, f.value]), item.task.responsible ?? '', ...item.path, item.proposal.title, item.proposal.code, item.store.name, item.store.shortName]
+  return [item.task.title, item.task.description ?? '', ...item.task.detailFields.flatMap((f) => [f.label, f.value]), item.task.responsible ?? '', ...item.path, item.proposal.title, item.proposal.code, ...item.stores.flatMap((s) => [s.name, s.shortName])]
     .join('\n')
     .toLowerCase()
     .includes(needle)

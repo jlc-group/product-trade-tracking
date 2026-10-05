@@ -1,5 +1,5 @@
 // Pure helpers for the calendar page: month math, bucketing launches/tasks by date, sorting.
-import { addDays, isOverdue, PRIORITY_ORDER, type Channel, type ISODate, type ProposalStatus, type Task } from '@flowtrade/shared'
+import { addDays, isOverdue, PRIORITY_ORDER, storeNamesLabel, type Channel, type ISODate, type ProposalStatus, type Task } from '@flowtrade/shared'
 import type { ProposalListItem, TaskWithContext } from '@/api/types'
 import { dayjs } from '@/lib/format'
 
@@ -80,7 +80,7 @@ function sortLaunches(list: ProposalListItem[]) {
   return list.sort(
     (a, b) =>
       STATUS_RANK[a.status] - STATUS_RANK[b.status] ||
-      a.store.sortOrder - b.store.sortOrder ||
+      a.stores[0].sortOrder - b.stores[0].sortOrder ||
       a.title.localeCompare(b.title, 'th'),
   )
 }
@@ -125,10 +125,11 @@ export function nearestMonthWithItems(buckets: Map<ISODate, DayBucket>, month: s
   return months.find((m) => m > month) ?? months.filter((m) => m < month).pop() ?? null
 }
 
-/** Proposal title without the trailing "→ Store" / "— Store" (the store logo already says it). */
-export function shortTitle(p: Pick<ProposalListItem, 'title'> & { store: { name: string } }): string {
+/** Proposal title without the trailing "→ Stores" / "— Store" (the store logos already say it). */
+export function shortTitle(p: Pick<ProposalListItem, 'title'> & { stores: { name: string }[] }): string {
+  const stores = storeNamesLabel(p.stores.map((s) => s.name))
   for (const sep of [' → ', ' — ']) {
-    const suffix = `${sep}${p.store.name}`
+    const suffix = `${sep}${stores}`
     if (p.title.endsWith(suffix) && p.title.length > suffix.length) return p.title.slice(0, -suffix.length)
   }
   return p.title

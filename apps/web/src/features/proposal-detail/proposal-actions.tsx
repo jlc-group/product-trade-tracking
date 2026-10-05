@@ -23,7 +23,7 @@ import { cn } from '@/lib/utils'
 import { DuplicateDialog } from './duplicate-dialog'
 import { EditProposalDialog } from './edit-proposal-dialog'
 import { RescheduleDialog } from './reschedule-dialog'
-import { launchWord, storeWord } from './utils'
+import { launchWord } from './utils'
 
 const STATUS_HINT: Record<ProposalStatus, string> = {
   DRAFT: 'ยังวางแผนอยู่ ยังไม่เริ่มงาน',
@@ -148,7 +148,7 @@ export function ProposalActions({ proposal }: { proposal: ProposalDetail }) {
 
   const duplicateItem = canDuplicate ? (
     <DropdownMenuItem onSelect={() => setDialog('duplicate')}>
-      <CopyIcon /> คัดลอกไป{storeWord(proposal.channel)}อื่น
+      <CopyIcon /> คัดลอกเป็นโปรเจกต์ใหม่
     </DropdownMenuItem>
   ) : null
 

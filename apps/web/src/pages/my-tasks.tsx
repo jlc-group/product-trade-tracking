@@ -3,7 +3,7 @@ import { CalendarClockIcon, CheckCheckIcon, FolderKanbanIcon, PartyPopperIcon, S
 import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { errorMessage, useMyTasks } from '@/api/hooks'
-import { StoreLogo } from '@/components/common/badges'
+import { StoreLogos } from '@/components/common/badges'
 import { EmptyState, PageHeader } from '@/components/common/misc'
 import { Button } from '@/components/ui/button'
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group'
@@ -58,7 +58,7 @@ function GroupSection({ group, toggler, groupBy }: { group: TaskGroup; toggler: 
       <div className="sticky top-14 z-10 -mx-1 flex min-w-0 items-center gap-2 bg-background/95 px-1 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         {group.project ? (
           <>
-            <StoreLogo store={group.project.store} size="sm" />
+            <StoreLogos stores={group.project.stores} size="sm" max={2} />
             <h2 id={headingId} className="min-w-0 truncate text-sm font-semibold">
               <Link to={`/proposals/${group.project.id}`} className="rounded hover:text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none">
                 {group.title}

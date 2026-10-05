@@ -57,7 +57,7 @@ export function StepStores({
   return (
     <div className="space-y-4">
       <Callout tone="info" icon={<LayersIcon />}>
-        เลือกหลาย{unit}ได้ ระบบจะสร้างงานแยกให้{unit}ละ 1 โปรเจกต์
+        เลือกหลาย{unit}ได้ ทุก{unit}จะอยู่ในโปรเจกต์เดียวและใช้รายการงานชุดเดียวกัน — หลังสร้างแล้วเพิ่มหรือลด{unit}ได้เฉพาะ Admin
       </Callout>
 
       <div className="flex items-center justify-between gap-2" aria-live="polite">

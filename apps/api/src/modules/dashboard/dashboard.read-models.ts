@@ -3,16 +3,15 @@
 import { computeProgress, isOverdue, type ISODate, type Proposal, type ProposalStatus, type Store, type Task, type User } from '@flowtrade/shared'
 import type { ProposalListItem, TaskWithContext } from '@flowtrade/shared/api-types'
 import { toDateOnly } from '../../common/dates.js'
-import { proposalInclude, toProduct, toProposal, toShelfType, toStore, toUser } from '../../common/mappers.js'
+import { proposalWithStoresInclude, toProduct, toProposal, toShelfType, toStores, toUser } from '../../common/mappers.js'
 import type { Prisma } from '../../generated/prisma/client.js'
 
 /** Proposals that are still being worked on (dashboard "live" / "active"). */
 export const CLOSED_STATUSES: ProposalStatus[] = ['CANCELLED', 'COMPLETED']
 
 export const listInclude = {
-  ...proposalInclude,
+  ...proposalWithStoresInclude,
   products: { select: { productId: true, product: true }, orderBy: { sortOrder: 'asc' } },
-  store: true,
   shelfType: true,
   owner: true,
 } satisfies Prisma.ProposalInclude
@@ -59,7 +58,7 @@ export function toListItem(row: ListRow, tasks: TaskLite[], today: ISODate): Pro
     overdueCount: tasks.filter((x) => isOverdue(x, today) && !parentIds.has(x.id)).length,
     openTaskCount: open.length,
     nextDueDate,
-    store: toStore(row.store),
+    stores: toStores(row.stores),
     shelfType: toShelfType(row.shelfType),
     owner: toUser(row.owner),
     products: row.products.map((p) => toProduct(p.product)),
@@ -97,6 +96,6 @@ export function sortUsers(users: User[]): User[] {
   return [...users].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.name.localeCompare(b.name, 'th') || a.id.localeCompare(b.id))
 }
 
-export function withContext(task: Task, proposal: Proposal, store: Store, path: string[]): TaskWithContext {
-  return { task, proposal, store, path }
+export function withContext(task: Task, proposal: Proposal, stores: Store[], path: string[]): TaskWithContext {
+  return { task, proposal, stores, path }
 }

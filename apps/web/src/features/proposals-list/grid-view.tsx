@@ -10,14 +10,17 @@ interface StoreGroup {
   overdue: number
 }
 
+/** A proposal listed at several stores appears in each of their groups. */
 function groupByStore(items: ProposalListItem[]): StoreGroup[] {
   const map = new Map<string, StoreGroup>()
   for (const p of items) {
-    const g = map.get(p.store.id) ?? { store: p.store, items: [], active: 0, overdue: 0 }
-    g.items.push(p)
-    if (p.status !== 'COMPLETED' && p.status !== 'CANCELLED') g.active += 1
-    g.overdue += p.overdueCount
-    map.set(p.store.id, g)
+    for (const store of p.stores) {
+      const g = map.get(store.id) ?? { store, items: [], active: 0, overdue: 0 }
+      g.items.push(p)
+      if (p.status !== 'COMPLETED' && p.status !== 'CANCELLED') g.active += 1
+      g.overdue += p.overdueCount
+      map.set(store.id, g)
+    }
   }
   // Offline stores first, then the admin-defined order.
   return [...map.values()].sort(

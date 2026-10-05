@@ -2,7 +2,7 @@ import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon } from 'lucide-react'
 import type { MouseEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 import type { ProposalListItem } from '@/api/types'
-import { ShelfTypeBadge, StatusBadge, StoreChip } from '@/components/common/badges'
+import { ShelfTypeBadge, StatusBadge, StoresChip } from '@/components/common/badges'
 import { ProgressBar } from '@/components/common/misc'
 import { UserAvatar } from '@/components/common/user-avatar'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -89,7 +89,7 @@ export function TableView({ items, list }: { items: ProposalListItem[]; list: Li
                 </TableCell>
                 <TableCell className="max-w-[11rem] align-top xl:max-w-[13rem]">
                   <div className="flex min-w-0 flex-col items-start gap-1.5">
-                    <StoreChip store={p.store} className="max-w-full" />
+                    <StoresChip stores={p.stores} className="max-w-full" />
                     <ShelfTypeBadge shelfType={p.shelfType} className="max-w-full overflow-hidden 2xl:hidden" />
                   </div>
                 </TableCell>

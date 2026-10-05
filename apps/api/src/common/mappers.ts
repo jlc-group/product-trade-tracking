@@ -20,9 +20,19 @@ import { iso, isoOrNull, toDateOnly } from './dates.js'
 
 // ---------- include presets (use these so mappers always get what they need) ----------
 
+/** A proposal's stores in the admin-defined store order. */
+const proposalStoreOrder = [{ store: { sortOrder: 'asc' } }, { store: { name: 'asc' } }, { storeId: 'asc' }] satisfies Prisma.ProposalStoreOrderByWithRelationInput[]
+
 export const proposalInclude = {
+  stores: { select: { storeId: true }, orderBy: proposalStoreOrder },
   members: { select: { userId: true }, orderBy: { addedAt: 'asc' } },
   products: { select: { productId: true }, orderBy: { sortOrder: 'asc' } },
+} satisfies Prisma.ProposalInclude
+
+/** proposalInclude + the store rows (for `stores: Store[]` in read models). */
+export const proposalWithStoresInclude = {
+  ...proposalInclude,
+  stores: { select: { storeId: true, store: true }, orderBy: proposalStoreOrder },
 } satisfies Prisma.ProposalInclude
 
 export const taskInclude = {
@@ -65,6 +75,10 @@ export function toStore(s: Prisma.StoreGetPayload<object>): Store {
   return { id: s.id, name: s.name, shortName: s.shortName, channel: s.channel, color: s.color, description: s.description, sortOrder: s.sortOrder, isActive: s.isActive, createdAt: iso(s.createdAt), updatedAt: iso(s.updatedAt) }
 }
 
+export function toStores(rows: { store: Prisma.StoreGetPayload<object> }[]): Store[] {
+  return rows.map((r) => toStore(r.store))
+}
+
 export function toShelfType(s: Prisma.ShelfTypeGetPayload<object>): ShelfType {
   return { id: s.id, name: s.name, channel: s.channel, color: s.color, description: s.description, sortOrder: s.sortOrder, isActive: s.isActive, createdAt: iso(s.createdAt), updatedAt: iso(s.updatedAt) }
 }
@@ -79,7 +93,7 @@ export function toProposal(p: ProposalRow): Proposal {
     code: p.code,
     title: p.title,
     channel: p.channel,
-    storeId: p.storeId,
+    storeIds: p.stores.map((s) => s.storeId),
     shelfTypeId: p.shelfTypeId,
     targetDate: toDateOnly(p.targetDate),
     status: p.status,

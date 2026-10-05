@@ -3,7 +3,7 @@ import { ChevronRightIcon, Loader2Icon } from 'lucide-react'
 import { Link } from 'react-router'
 import type { TaskWithContext } from '@/api'
 import { useCurrentUser } from '@/auth/auth'
-import { PriorityBadge, StoreLogo } from '@/components/common/badges'
+import { PriorityBadge, StoreLogos } from '@/components/common/badges'
 import { DueChip } from '@/components/common/misc'
 import { Checkbox } from '@/components/ui/checkbox'
 import { DepartmentChip } from '@/features/task-tree/department'
@@ -31,7 +31,7 @@ export function WorkTaskRow({
   className?: string
 }) {
   const user = useCurrentUser()
-  const { task, proposal, store, path } = item
+  const { task, proposal, stores, path } = item
   const allowed = canToggleTask(user, proposal, task)
   const done = toggler.isDone(item)
   const pending = toggler.isPending(item)
@@ -68,7 +68,7 @@ export function WorkTaskRow({
         <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
           {showProject && (
             <span className="inline-flex shrink-0 items-center gap-1.5">
-              <StoreLogo store={store} size="sm" className="h-5 min-w-5 text-[8px]" />
+              <StoreLogos stores={stores} size="sm" max={2} logoClassName="h-5 min-w-5 text-[8px]" />
               <span className="tabular font-medium text-foreground/70">{proposal.code}</span>
             </span>
           )}

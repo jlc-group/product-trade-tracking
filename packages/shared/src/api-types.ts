@@ -24,7 +24,8 @@ import type {
 // ---------- read models ----------
 
 export interface ProposalListItem extends ProposalSummary {
-  store: Store
+  /** Same order as storeIds. */
+  stores: Store[]
   shelfType: ShelfType
   owner: User
   products: Product[]
@@ -38,7 +39,7 @@ export interface ProposalDetail extends ProposalListItem {
 export interface TaskWithContext {
   task: Task
   proposal: Proposal
-  store: Store
+  stores: Store[]
   /** Titles of ancestors, top-down. */
   path: string[]
 }
@@ -130,7 +131,7 @@ export interface ProposalPlanItemInput {
 export interface CreateProposalInput {
   channel: Channel
   productIds: string[]
-  /** One proposal is created per store. */
+  /** One proposal listed at all of these stores (one shared task list). */
   storeIds: string[]
   shelfTypeId: string
   targetDate: ISODate
@@ -154,6 +155,8 @@ export interface UpdateProposalInput {
   memberIds?: string[]
   ownerId?: string
   shelfTypeId?: string
+  /** ADMIN only (proposal.stores.edit). */
+  storeIds?: string[]
 }
 
 export interface CreateTaskInput {

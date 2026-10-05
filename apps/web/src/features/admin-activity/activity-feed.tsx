@@ -2,7 +2,7 @@ import { addDays, todayBangkok, type EntityType, type ISODate } from '@flowtrade
 import { ArrowUpRightIcon, Building2Icon, LayersIcon, ListChecksIcon, ListTreeIcon, PackageIcon, ShoppingBagIcon, StoreIcon, UsersIcon, type LucideIcon } from 'lucide-react'
 import { Link } from 'react-router'
 import type { ActivityWithActor, ProposalListItem } from '@/api'
-import { StoreLogo } from '@/components/common/badges'
+import { StoreLogos } from '@/components/common/badges'
 import { UserAvatar } from '@/components/common/user-avatar'
 import { Skeleton } from '@/components/ui/skeleton'
 import { dayjs, formatDate, formatDateTime, today } from '@/lib/format'
@@ -70,7 +70,7 @@ function ActivityRow({ item, proposal, proposalsReady }: { item: ActivityWithAct
                 to={`/proposals/${proposal.id}${taskLink}`}
                 className="inline-flex min-w-0 items-center gap-1.5 rounded-sm font-medium text-primary underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
               >
-                <StoreLogo store={proposal.store} size="sm" className="h-4 min-w-4 rounded px-0.5 text-[8px]" />
+                <StoreLogos stores={proposal.stores} size="sm" max={2} logoClassName="h-4 min-w-4 rounded px-0.5 text-[8px]" />
                 <span className="truncate">
                   {proposal.code} · {proposal.title}
                 </span>

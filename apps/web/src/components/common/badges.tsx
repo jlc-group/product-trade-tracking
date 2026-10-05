@@ -11,17 +11,21 @@ import {
 import { GlobeIcon, StoreIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
+type LogoSize = 'sm' | 'md' | 'lg' | 'xl'
+type StoreLook = Pick<Store, 'id' | 'shortName' | 'color' | 'name'>
+
+const LOGO_SIZE: Record<LogoSize, string> = {
+  sm: 'h-6 min-w-6 px-1 text-[9px] rounded-md',
+  md: 'h-8 min-w-8 px-1.5 text-[10px] rounded-lg',
+  lg: 'h-11 min-w-11 px-2 text-xs rounded-xl',
+  xl: 'h-14 min-w-14 px-2 text-sm rounded-2xl',
+}
+
 /** Colored tile with the store's short name — stands in for a logo. */
-export function StoreLogo({ store, size = 'md', className }: { store: Pick<Store, 'shortName' | 'color' | 'name'>; size?: 'sm' | 'md' | 'lg' | 'xl'; className?: string }) {
-  const sizes = {
-    sm: 'h-6 min-w-6 px-1 text-[9px] rounded-md',
-    md: 'h-8 min-w-8 px-1.5 text-[10px] rounded-lg',
-    lg: 'h-11 min-w-11 px-2 text-xs rounded-xl',
-    xl: 'h-14 min-w-14 px-2 text-sm rounded-2xl',
-  }
+export function StoreLogo({ store, size = 'md', className }: { store: Pick<Store, 'shortName' | 'color' | 'name'>; size?: LogoSize; className?: string }) {
   return (
     <span
-      className={cn('inline-flex shrink-0 items-center justify-center font-bold tracking-tight text-white shadow-sm', sizes[size], className)}
+      className={cn('inline-flex shrink-0 items-center justify-center font-bold tracking-tight text-white shadow-sm', LOGO_SIZE[size], className)}
       style={{ backgroundColor: store.color }}
       title={store.name}
       aria-hidden
@@ -31,11 +35,55 @@ export function StoreLogo({ store, size = 'md', className }: { store: Pick<Store
   )
 }
 
+/** A proposal's stores as overlapping logo tiles: up to `max` tiles, the last one "+N" when there are more. */
+export function StoreLogos({
+  stores,
+  size = 'md',
+  max = 3,
+  className,
+  logoClassName,
+}: {
+  stores: StoreLook[]
+  size?: LogoSize
+  max?: number
+  className?: string
+  /** Applied to every tile (e.g. to shrink them below the `sm` size). */
+  logoClassName?: string
+}) {
+  const shown = stores.length > max ? stores.slice(0, max - 1) : stores
+  const rest = stores.length - shown.length
+  return (
+    <span className={cn('inline-flex shrink-0 items-center -space-x-1.5', className)} title={stores.map((s) => s.name).join(', ')} aria-hidden>
+      {shown.map((s) => (
+        <StoreLogo key={s.id} store={s} size={size} className={cn('ring-2 ring-background', logoClassName)} />
+      ))}
+      {rest > 0 && (
+        <span className={cn('inline-flex shrink-0 items-center justify-center bg-muted font-bold tabular text-muted-foreground ring-2 ring-background', LOGO_SIZE[size], logoClassName)}>
+          +{rest}
+        </span>
+      )}
+    </span>
+  )
+}
+
 export function StoreChip({ store, className }: { store: Pick<Store, 'shortName' | 'color' | 'name'>; className?: string }) {
   return (
     <span className={cn('inline-flex min-w-0 items-center gap-2', className)}>
       <StoreLogo store={store} size="sm" />
       <span className="truncate font-medium">{store.name}</span>
+    </span>
+  )
+}
+
+/** One store: logo + name. Several: every store's logo tile (names on hover / for screen readers). */
+export function StoresChip({ stores, className }: { stores: StoreLook[]; className?: string }) {
+  if (stores.length === 1) return <StoreChip store={stores[0]} className={className} />
+  return (
+    <span className={cn('flex min-w-0 flex-wrap items-center gap-1', className)}>
+      {stores.map((s) => (
+        <StoreLogo key={s.id} store={s} size="sm" />
+      ))}
+      <span className="sr-only">{stores.map((s) => s.name).join(', ')}</span>
     </span>
   )
 }

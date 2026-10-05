@@ -60,7 +60,7 @@ Validation and error messages are Thai and are shown to users as-is. The web cli
 | DELETE | /departments/:id | `department.manage` (409 `IN_USE` `ลบไม่ได้ เพราะมีผู้ใช้ N คนอยู่ในแผนกนี้ — ปิดการใช้งานแทนได้` while any user has it) | — | `true` |
 | PUT | /departments/order | `department.manage` | `{ ids: string[] }` (sortOrder = index + 1, one transaction) | `true` |
 | GET | /stores | signed in | `?includeInactive=true` | `Store[]` (channel, sortOrder) |
-| GET | /stores/usage | signed in | — | `Record<storeId, proposalCount>` |
+| GET | /stores/usage | signed in | — | `Record<storeId, proposalCount>` (a proposal counts at each of its stores) |
 | POST | /stores | `store.manage` | `StoreInput` | `Store` |
 | PATCH | /stores/:id | `store.manage` | `Partial<StoreInput> & { isActive? }` | `Store` |
 | DELETE | /stores/:id | `store.manage` (409 `IN_USE` when referenced) | — | `true` |
@@ -82,13 +82,13 @@ Validation and error messages are Thai and are shown to users as-is. The web cli
 | POST | /task-templates | `template.manage` | `TemplateInput` (item ids may be client temp ids; server re-keys; each item's optional `fieldLabels` = table row labels, trimmed, blanks dropped, max 100). `channel: null` = every channel; then `shelfTypeId` and `storeId` must be null (422) | `TaskTemplate` |
 | PATCH | /task-templates/:id | `template.manage` | `Partial<TemplateInput>` (items replace all; same `channel: null` rule on the resulting template) | `TaskTemplate` |
 | DELETE | /task-templates/:id | `template.manage` | — | `true` |
-| GET | /proposals | signed in (scope rules) | `?q&status&channel&storeId&shelfTypeId&ownerId&scope=mine\|all` | `ProposalListItem[]` |
+| GET | /proposals | signed in (scope rules) | `?q&status&channel&storeId&shelfTypeId&ownerId&scope=mine\|all` — `storeId` matches any of a proposal's stores; `q` searches every store name | `ProposalListItem[]` (`stores: Store[]`, admin store order) |
 | GET | /proposals/:id | can view | — | `ProposalDetail` |
-| POST | /proposals | `proposal.create` | `CreateProposalInput` (one proposal per store). `targetDate` must be the 15th and not before today (422). Plan / template `responsible` → each task's `responsible`; plan / template `fieldLabels` → the task starts as a table (`descriptionFormat: FIELDS`, one empty row per label), otherwise description stays null | `Proposal[]` |
-| PATCH | /proposals/:id | owner or `proposal.update.any` | `UpdateProposalInput` | `Proposal` |
+| POST | /proposals | `proposal.create` | `CreateProposalInput` — ONE proposal listed at every store in `storeIds` (same channel, one shared task list); no title → "<first product> +N → <stores>". `targetDate` must be the 15th and not before today (422). Plan / template `responsible` → each task's `responsible`; plan / template `fieldLabels` → the task starts as a table (`descriptionFormat: FIELDS`, one empty row per label), otherwise description stays null | `Proposal` |
+| PATCH | /proposals/:id | owner or `proposal.update.any` | `UpdateProposalInput` — a changed `storeIds` (min 1, same channel; new stores must be active) needs `proposal.stores.edit` = ADMIN only (403 `ห้างของโปรเจกต์ที่สร้างแล้ว แก้ไขได้เฉพาะ Admin เท่านั้น`); the same set in any order is ignored | `Proposal` |
 | POST | /proposals/:id/status | owner or `proposal.update.any` | `{ status }` | `Proposal` |
 | POST | /proposals/:id/target-date | owner or `proposal.update.any` | `{ targetDate, shiftTasks }` — `targetDate` must be the 15th (422) | `Proposal` |
-| POST | /proposals/:id/duplicate | `proposal.create` + can view | `{ storeId, targetDate }` — `targetDate` must be the 15th (422); tasks keep `responsible` and the details table (values too) | `Proposal` |
+| POST | /proposals/:id/duplicate | `proposal.create` + can view | `{ storeIds, targetDate }` — a new proposal for those stores (any of the channel, the source's included); `targetDate` must be the 15th (422); tasks keep `responsible` and the details table (values too) | `Proposal` |
 | DELETE | /proposals/:id | `proposal.delete.any`, or owner of a DRAFT | — | `true` |
 | GET | /proposals/:id/tasks | can view | — | `Task[]` (flat) |
 | GET | /proposals/:id/comment-counts | can view | — | `Record<taskId, count>` |

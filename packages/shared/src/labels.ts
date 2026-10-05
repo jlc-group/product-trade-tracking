@@ -70,3 +70,15 @@ export const DESCRIPTION_FORMAT_LABEL: Record<DescriptionFormat, string> = {
 export function signInName(user: { username: string | null; email: string | null }): string {
   return user.username ?? user.email ?? ''
 }
+
+/** Store names on one line: up to `max` names, then "+N" for the rest ("Watsons, Lotus's, Big C +4"). */
+export function storeNamesLabel(names: readonly string[], max = 3): string {
+  return names.length <= max ? names.join(', ') : `${names.slice(0, max).join(', ')} +${names.length - max}`
+}
+
+/** The title a proposal gets when none is typed: "<first product> +N → <stores>". */
+export function autoProposalTitle(productNames: readonly string[], storeNames: readonly string[]): string {
+  if (productNames.length === 0) return ''
+  const head = `${productNames[0]}${productNames.length > 1 ? ` +${productNames.length - 1}` : ''}`
+  return storeNames.length > 0 ? `${head} → ${storeNamesLabel(storeNames)}` : head
+}

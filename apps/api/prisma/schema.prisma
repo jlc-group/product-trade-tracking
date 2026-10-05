@@ -146,7 +146,7 @@ model Store {
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  proposals Proposal[]
+  proposals ProposalStore[]
   templates TaskTemplate[]
 
   @@index([channel, sortOrder])
@@ -190,14 +190,13 @@ model Product {
   @@map("products")
 }
 
-/// One listing project: products → one store → one shelf type → target on-shelf date.
+/// One listing project: products → one or more stores (one shared task list) → one shelf type → target on-shelf date.
 model Proposal {
   id          String         @id @default(uuid()) @db.Uuid
   /// PRJ-<year>-<0001>, generated from proposal_counters.
   code        String         @unique
   title       String
   channel     Channel
-  storeId     String         @map("store_id") @db.Uuid
   shelfTypeId String         @map("shelf_type_id") @db.Uuid
   /// Business date (Asia/Bangkok).
   targetDate  DateTime       @map("target_date") @db.Date
@@ -209,10 +208,10 @@ model Proposal {
   updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
   completedAt DateTime?      @map("completed_at") @db.Timestamptz(3)
 
-  store     Store             @relation(fields: [storeId], references: [id], onDelete: Restrict)
   shelfType ShelfType         @relation(fields: [shelfTypeId], references: [id], onDelete: Restrict)
   owner     User              @relation("ProposalOwner", fields: [ownerId], references: [id], onDelete: Restrict)
   template  TaskTemplate?     @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  stores    ProposalStore[]
   members   ProposalMember[]
   products  ProposalProduct[]
   tasks     Task[]
@@ -220,9 +219,21 @@ model Proposal {
   activity  ActivityLog[]
 
   @@index([status, targetDate])
-  @@index([storeId])
   @@index([ownerId])
   @@map("proposals")
+}
+
+/// The stores a proposal is listed at (at least one; only ADMIN can change them after creation).
+model ProposalStore {
+  proposalId String @map("proposal_id") @db.Uuid
+  storeId    String @map("store_id") @db.Uuid
+
+  proposal Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Restrict)
+
+  @@id([proposalId, storeId])
+  @@index([storeId])
+  @@map("proposal_stores")
 }
 
 model ProposalMember {

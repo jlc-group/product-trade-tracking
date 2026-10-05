@@ -1,8 +1,9 @@
+import { storeNamesLabel } from '@flowtrade/shared'
 import { CalendarRangeIcon, RocketIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import type { ProposalListItem } from '@/api/types'
-import { StatusBadge, StoreLogo } from '@/components/common/badges'
+import { StatusBadge, StoreLogos } from '@/components/common/badges'
 import { EmptyState, LaunchCountdown, ProgressRing } from '@/components/common/misc'
 import { Button } from '@/components/ui/button'
 import { dayjs, formatDate } from '@/lib/format'
@@ -26,12 +27,12 @@ function LaunchRow({ item }: { item: ProposalListItem }) {
           <span className="text-[10px] text-muted-foreground">{d.format('dd')}</span>
           <span className="tabular mt-0.5 text-base font-semibold">{d.format('D')}</span>
         </span>
-        <StoreLogo store={item.store} size="sm" className="hidden @sm:inline-flex" />
+        <StoreLogos stores={item.stores} size="sm" max={2} className="hidden @sm:inline-flex" />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium group-hover:text-primary">{item.title}</span>
           <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
             <span className="truncate">
-              {item.store.name} · <span className="tabular">{item.code}</span>
+              {storeNamesLabel(item.stores.map((s) => s.name))} · <span className="tabular">{item.code}</span>
             </span>
             {item.overdueCount > 0 && <span className="shrink-0 font-medium text-danger">· เลยกำหนด {fmt(item.overdueCount)}</span>}
           </span>

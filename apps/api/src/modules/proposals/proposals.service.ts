@@ -3,14 +3,18 @@ import { randomUUID } from 'node:crypto'
 import { Injectable } from '@nestjs/common'
 import {
   addDays,
+  autoProposalTitle,
   canDeleteProposal,
   canEditProposal,
+  canEditProposalStores,
   diffDays,
   normalizePlan,
   planFromTemplate,
   readDetailFields,
   STATUS_LABEL,
+  storeNamesLabel,
   todayBangkok,
+  type Channel,
   type ISODate,
   type NormalizedPlanItem,
   type Proposal,
@@ -78,6 +82,23 @@ export class ProposalsService {
     return proposal
   }
 
+  /**
+   * Stores in the admin-defined order (de-duplicated); every id must exist and belong to the channel.
+   * New stores must be active; stores already on the proposal (`current`) may stay after being deactivated.
+   */
+  private async loadStores(db: Db, ids: string[], channel: Channel, current: string[] = []) {
+    const unique = [...new Set(ids)]
+    if (unique.length === 0) throw invalid('กรุณาเลือกห้างหรือแพลตฟอร์มอย่างน้อย 1 แห่ง')
+    const rows = await db.store.findMany({ where: { id: { in: unique } }, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }] })
+    // Fixed order, first error wins.
+    for (const id of unique) {
+      const store = rows.find((s) => s.id === id)
+      if (!store || (!store.isActive && !current.includes(id))) throw invalid('ไม่พบห้างที่เลือก')
+      if (store.channel !== channel) throw invalid(`${store.name} ไม่ได้อยู่ในช่องทางที่เลือก`)
+    }
+    return rows
+  }
+
   /** Products in the given order (de-duplicated); every id must exist. */
   private async loadProducts(db: Db, ids: string[], requireActive: boolean) {
     const unique = [...new Set(ids)]
@@ -91,8 +112,8 @@ export class ProposalsService {
 
   // ---------- POST /proposals ----------
 
-  /** Wizard submit: one proposal per selected store, each with tasks from the template — all in one transaction. */
-  create(user: User, input: CreateProposalBody): Promise<Proposal[]> {
+  /** Wizard submit: one proposal listed at every selected store, with one task list from the plan or template. */
+  create(user: User, input: CreateProposalBody): Promise<Proposal> {
     return this.prisma.$transaction(async (tx) => {
       const today = todayBangkok()
       const shelf = await tx.shelfType.findUnique({ where: { id: input.shelfTypeId } })
@@ -103,15 +124,7 @@ export class ProposalsService {
       const template = templateRow ? toTemplate(templateRow) : null
       const memberIds = await this.access.activeUserIds(tx, (input.memberIds ?? []).filter((m) => m !== user.id))
       const products = await this.loadProducts(tx, input.productIds, true)
-
-      // Validate every store up front (fixed order, first error wins).
-      const storeRows = await tx.store.findMany({ where: { id: { in: [...new Set(input.storeIds)] } } })
-      const stores = input.storeIds.map((storeId) => {
-        const store = storeRows.find((s) => s.id === storeId && s.isActive)
-        if (!store) throw invalid('ไม่พบห้างที่เลือก')
-        if (store.channel !== input.channel) throw invalid(`${store.name} ไม่ได้อยู่ในช่องทางที่เลือก`)
-        return store
-      })
+      const stores = await this.loadStores(tx, input.storeIds, input.channel)
 
       // Wizard-edited plan (exactly what the user kept/typed) wins over template instantiation.
       let plan: PlanRow[]
@@ -137,73 +150,63 @@ export class ProposalsService {
       } else {
         plan = []
       }
-      const customTitle = input.title?.trim()
-      const note = input.note?.trim() || null
-      const created: Proposal[] = []
+      const storeNames = stores.map((s) => s.name)
+      const title = input.title?.trim() || autoProposalTitle(products.map((p) => p.name), storeNames)
+      const code = await this.nextCode(tx, today)
+      const memberStamps = orderedStamps(memberIds.length)
+      const row = await tx.proposal.create({
+        data: {
+          code,
+          title,
+          channel: input.channel,
+          shelfTypeId: shelf.id,
+          targetDate: fromDateOnly(input.targetDate),
+          status: input.status,
+          ownerId: user.id,
+          templateId: template?.id ?? null,
+          note: input.note?.trim() || null,
+          stores: { createMany: { data: stores.map((s) => ({ storeId: s.id })) } },
+          members: { createMany: { data: memberIds.map((userId, i) => ({ userId, addedAt: memberStamps[i] })) } },
+          products: { createMany: { data: products.map((p, i) => ({ productId: p.id, sortOrder: i })) } },
+        },
+        include: proposalInclude,
+      })
 
-      for (const store of stores) {
-        const title = customTitle
-          ? input.storeIds.length > 1
-            ? `${customTitle} — ${store.name}`
-            : customTitle
-          : `${products[0].name}${products.length > 1 ? ` +${products.length - 1}` : ''} → ${store.name}`
-        const code = await this.nextCode(tx, today)
-        const memberStamps = orderedStamps(memberIds.length)
-        const row = await tx.proposal.create({
-          data: {
-            code,
-            title,
-            channel: input.channel,
-            storeId: store.id,
-            shelfTypeId: shelf.id,
-            targetDate: fromDateOnly(input.targetDate),
-            status: input.status,
-            ownerId: user.id,
-            templateId: template?.id ?? null,
-            note,
-            members: { createMany: { data: memberIds.map((userId, i) => ({ userId, addedAt: memberStamps[i] })) } },
-            products: { createMany: { data: products.map((p, i) => ({ productId: p.id, sortOrder: i })) } },
-          },
-          include: proposalInclude,
+      if (plan.length > 0) {
+        // Plan is in tree pre-order, so every parent is mapped before its children.
+        const idMap = new Map<string, { id: string; level: number }>()
+        const tasks: Prisma.TaskCreateManyInput[] = plan.map((p) => {
+          const id = randomUUID()
+          const parent = p.parentKey ? idMap.get(p.parentKey) : undefined
+          // An item whose parent is missing becomes a root (DB requires level 1 ⇔ no parent).
+          const level = parent ? parent.level + 1 : 1
+          idMap.set(p.key, { id, level })
+          return {
+            id,
+            proposalId: row.id,
+            parentId: parent?.id ?? null,
+            level,
+            title: p.title,
+            description: null,
+            // Template table labels → empty label → value rows the team fills in.
+            descriptionFormat: p.fieldLabels.length > 0 ? ('FIELDS' as const) : ('TEXT' as const),
+            detailFields: detailFieldsJson(p.fieldLabels.map((label) => ({ id: randomUUID(), label, value: '' }))),
+            startDate: fromDateOnly(p.startDate),
+            dueDate: fromDateOnly(p.dueDate),
+            responsible: p.responsible,
+            priority: level === 1 ? ('HIGH' as const) : ('MEDIUM' as const),
+            isDone: false,
+            sortOrder: p.sortOrder,
+            createdById: user.id,
+          }
         })
-
-        if (plan.length > 0) {
-          // Plan is in tree pre-order, so every parent is mapped before its children.
-          const idMap = new Map<string, { id: string; level: number }>()
-          const tasks: Prisma.TaskCreateManyInput[] = plan.map((p) => {
-            const id = randomUUID()
-            const parent = p.parentKey ? idMap.get(p.parentKey) : undefined
-            // An item whose parent is missing becomes a root (DB requires level 1 ⇔ no parent).
-            const level = parent ? parent.level + 1 : 1
-            idMap.set(p.key, { id, level })
-            return {
-              id,
-              proposalId: row.id,
-              parentId: parent?.id ?? null,
-              level,
-              title: p.title,
-              description: null,
-              // Template table labels → empty label → value rows the team fills in.
-              descriptionFormat: p.fieldLabels.length > 0 ? ('FIELDS' as const) : ('TEXT' as const),
-              detailFields: detailFieldsJson(p.fieldLabels.map((label) => ({ id: randomUUID(), label, value: '' }))),
-              startDate: fromDateOnly(p.startDate),
-              dueDate: fromDateOnly(p.dueDate),
-              responsible: p.responsible,
-              priority: level === 1 ? ('HIGH' as const) : ('MEDIUM' as const),
-              isDone: false,
-              sortOrder: p.sortOrder,
-              createdById: user.id,
-            }
-          })
-          await tx.task.createMany({ data: tasks })
-          await tx.taskAssignee.createMany({ data: tasks.map((t) => ({ taskId: t.id!, userId: user.id })) })
-        }
-
-        await this.activity.log(tx, user, 'proposal.create', 'PROPOSAL', row.id, row.id, `สร้างการเสนอสินค้า ${row.code} (${store.name})`)
-        await this.activity.notify(tx, memberIds, memberNotice(row), user.id)
-        created.push(toProposal(row))
+        await tx.task.createMany({ data: tasks })
+        await tx.taskAssignee.createMany({ data: tasks.map((t) => ({ taskId: t.id!, userId: user.id })) })
       }
-      return created
+
+      await this.activity.log(tx, user, 'proposal.create', 'PROPOSAL', row.id, row.id, `สร้างการเสนอสินค้า ${row.code} (${storeNames.join(', ')})`)
+      await this.activity.notify(tx, memberIds, memberNotice(row), user.id)
+      return toProposal(row)
     })
   }
 
@@ -238,6 +241,18 @@ export class ProposalsService {
         await tx.proposalProduct.createMany({ data: products.map((p, i) => ({ proposalId: id, productId: p.id, sortOrder: i })) })
       }
 
+      let storeChange: string | null = null
+      if (patch.storeIds) {
+        const same = new Set(patch.storeIds).size === proposal.storeIds.length && patch.storeIds.every((s) => proposal.storeIds.includes(s))
+        if (!same) {
+          if (!canEditProposalStores(user)) throw forbidden('ห้างของโปรเจกต์ที่สร้างแล้ว แก้ไขได้เฉพาะ Admin เท่านั้น')
+          const stores = await this.loadStores(tx, patch.storeIds, proposal.channel, proposal.storeIds)
+          await tx.proposalStore.deleteMany({ where: { proposalId: id } })
+          await tx.proposalStore.createMany({ data: stores.map((s) => ({ proposalId: id, storeId: s.id })) })
+          storeChange = stores.map((s) => s.name).join(', ')
+        }
+      }
+
       if (patch.shelfTypeId) {
         const shelf = await tx.shelfType.findUnique({ where: { id: patch.shelfTypeId } })
         if (!shelf) throw notFound('ประเภท Shelf')
@@ -252,7 +267,7 @@ export class ProposalsService {
       if (patch.note !== undefined) data.note = patch.note?.trim() || null
 
       const row = await tx.proposal.update({ where: { id }, data, include: proposalInclude })
-      await this.activity.log(tx, user, 'proposal.update', 'PROPOSAL', id, id, `แก้ไขข้อมูล ${row.code}`)
+      await this.activity.log(tx, user, 'proposal.update', 'PROPOSAL', id, id, `แก้ไขข้อมูล ${row.code}${storeChange ? ` — ห้างเป็น ${storeChange}` : ''}`)
       return toProposal(row)
     })
   }
@@ -335,12 +350,12 @@ export class ProposalsService {
 
   // ---------- POST /proposals/:id/duplicate ----------
 
-  /** Copy to another store of the same channel: new code, DRAFT, caller as owner, tasks re-dated by the target-date delta. */
-  duplicate(user: User, id: string, { storeId, targetDate }: DuplicateBody): Promise<Proposal> {
+  /** Copy as a new proposal for the chosen stores (same channel): new code, DRAFT, caller as owner, tasks re-dated by the target-date delta. */
+  duplicate(user: User, id: string, { storeIds, targetDate }: DuplicateBody): Promise<Proposal> {
     return this.prisma.$transaction(async (tx) => {
       const source = await this.access.loadVisible(tx, user, id)
-      const store = await tx.store.findUnique({ where: { id: storeId } })
-      if (!store || !store.isActive || store.channel !== source.channel) throw invalid('ห้างปลายทางไม่ถูกต้อง')
+      const stores = await this.loadStores(tx, storeIds, source.channel)
+      const storeNames = stores.map((s) => s.name)
       const delta = diffDays(source.targetDate, targetDate)
       const code = await this.nextCode(tx, todayBangkok())
       const memberIds = source.memberIds.filter((m) => m !== user.id)
@@ -348,9 +363,9 @@ export class ProposalsService {
       const row = await tx.proposal.create({
         data: {
           code,
-          title: source.title.replace(/→ .+$/, () => `→ ${store.name}`),
+          title: source.title.replace(/→ .+$/, () => `→ ${storeNamesLabel(storeNames)}`),
           channel: source.channel,
-          storeId: store.id,
+          stores: { createMany: { data: stores.map((s) => ({ storeId: s.id })) } },
           shelfTypeId: source.shelfTypeId,
           targetDate: fromDateOnly(targetDate),
           status: 'DRAFT',
@@ -403,7 +418,7 @@ export class ProposalsService {
         if (assignees.length > 0) await tx.taskAssignee.createMany({ data: assignees })
       }
 
-      await this.activity.log(tx, user, 'proposal.duplicate', 'PROPOSAL', row.id, row.id, `คัดลอกจาก ${source.code} เป็น ${row.code} (${store.name})`)
+      await this.activity.log(tx, user, 'proposal.duplicate', 'PROPOSAL', row.id, row.id, `คัดลอกจาก ${source.code} เป็น ${row.code} (${storeNames.join(', ')})`)
       return toProposal(row)
     })
   }

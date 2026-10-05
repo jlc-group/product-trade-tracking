@@ -1,10 +1,12 @@
-import { can, CHANNEL_TERMS, type User } from '@flowtrade/shared'
+import { can, canEditProposalStores, CHANNEL_TERMS, type User } from '@flowtrade/shared'
 import { Loader2Icon, LockIcon, UserPlusIcon } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
+import { useId, useState, type FormEvent } from 'react'
 import { toast } from 'sonner'
 import type { ProposalDetail, UpdateProposalInput } from '@/api'
-import { useShelfTypes, useUpdateProposal, useUserLookup } from '@/api/hooks'
+import { useShelfTypes, useStores, useUpdateProposal, useUserLookup } from '@/api/hooks'
 import { useCurrentUser } from '@/auth/auth'
+import { StoreLogo } from '@/components/common/badges'
+import { StoreChecklist } from '@/components/common/store-checklist'
 import { AvatarStack, UserAvatar } from '@/components/common/user-avatar'
 import { UserPicker } from '@/components/common/user-picker'
 import { Button } from '@/components/ui/button'
@@ -15,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { displayName } from '@/lib/format'
 import { ProductMultiSelect } from './product-multi-select'
-import { sameSet } from './utils'
+import { sameSet, storeWord } from './utils'
 
 interface Props {
   proposal: ProposalDetail
@@ -36,14 +38,19 @@ export function EditProposalDialog({ proposal, open, onOpenChange }: Props) {
 function EditForm({ proposal, onDone }: { proposal: ProposalDetail; onDone: () => void }) {
   const me = useCurrentUser()
   const canChangeOwner = can(me, 'proposal.update.any')
+  const canChangeStores = canEditProposalStores(me)
   const terms = CHANNEL_TERMS[proposal.channel]
+  const place = storeWord(proposal.channel)
+  const storesLabelId = useId()
   const update = useUpdateProposal()
   const { data: activeUsers = [] } = useUserLookup()
   const { data: shelfTypes = [] } = useShelfTypes()
+  const { data: activeStores = [] } = useStores()
 
   const [title, setTitle] = useState(proposal.title)
   const [note, setNote] = useState(proposal.note ?? '')
   const [shelfTypeId, setShelfTypeId] = useState(proposal.shelfTypeId)
+  const [storeIds, setStoreIds] = useState(proposal.storeIds)
   const [productIds, setProductIds] = useState(proposal.productIds)
   const [ownerId, setOwnerId] = useState(proposal.ownerId)
   const [memberIds, setMemberIds] = useState(proposal.memberIds)
@@ -57,6 +64,8 @@ function EditForm({ proposal, onDone }: { proposal: ProposalDetail; onDone: () =
 
   const channelShelves = shelfTypes.filter((s) => s.channel === proposal.channel)
   const shelfOptions = channelShelves.some((s) => s.id === proposal.shelfTypeId) ? channelShelves : [proposal.shelfType, ...channelShelves]
+  // The proposal's own stores stay listed even if deactivated since.
+  const storeOptions = [...proposal.stores.filter((s) => !s.isActive), ...activeStores.filter((s) => s.channel === proposal.channel)]
 
   const ownerChanged = ownerId !== proposal.ownerId
   const previousOwnerActive = activeUsers.some((u) => u.id === proposal.ownerId)
@@ -65,22 +74,25 @@ function EditForm({ proposal, onDone }: { proposal: ProposalDetail; onDone: () =
     title.trim() !== proposal.title ||
     (note.trim() || null) !== proposal.note ||
     shelfTypeId !== proposal.shelfTypeId ||
+    !sameSet(storeIds, proposal.storeIds) ||
     !sameSet(productIds, proposal.productIds) ||
     membersChanged
 
   const titleError = submitted && !title.trim() ? 'กรุณาตั้งชื่อการเสนอ เช่น “ชื่อสินค้า → ชื่อห้าง”' : null
   const productError = productIds.length === 0 ? 'ต้องมีสินค้าอย่างน้อย 1 รายการ — เลือกเพิ่มจากรายการด้านบน' : null
+  const storeError = storeIds.length === 0 ? `ต้องมี${place}อย่างน้อย 1 แห่ง` : null
 
   async function submit(e: FormEvent) {
     e.preventDefault()
     setSubmitted(true)
-    if (!title.trim() || productIds.length === 0) return
+    if (!title.trim() || productIds.length === 0 || storeIds.length === 0) return
     const patch: UpdateProposalInput = {
       title: title.trim(),
       note: note.trim() || null,
       productIds,
     }
     if (shelfTypeId !== proposal.shelfTypeId) patch.shelfTypeId = shelfTypeId
+    if (canChangeStores && !sameSet(storeIds, proposal.storeIds)) patch.storeIds = storeIds
     if (membersChanged) {
       const active = new Set(activeUsers.map((u) => u.id))
       let next = visibleMemberIds
@@ -104,7 +116,7 @@ function EditForm({ proposal, onDone }: { proposal: ProposalDetail; onDone: () =
       <DialogHeader>
         <DialogTitle>แก้ไขข้อมูลการเสนอสินค้า</DialogTitle>
         <DialogDescription>
-          {proposal.code} · {proposal.store.name} — ต้องการเปลี่ยนวันใช้ปุ่ม “เลื่อนวัน” แทน
+          {proposal.code} — ต้องการเปลี่ยนวันใช้ปุ่ม “เลื่อนวัน” แทน
         </DialogDescription>
       </DialogHeader>
 
@@ -122,6 +134,35 @@ function EditForm({ proposal, onDone }: { proposal: ProposalDetail; onDone: () =
           <p id="edit-title-error" className="text-xs text-danger">
             {titleError}
           </p>
+        )}
+      </div>
+
+      <div className="grid gap-2">
+        <p id={storesLabelId} className="text-sm leading-none font-medium">
+          {terms.store}
+        </p>
+        {canChangeStores ? (
+          <>
+            <StoreChecklist stores={storeOptions} value={storeIds} onChange={setStoreIds} labelledBy={storesLabelId} invalid={!!storeError} />
+            <p className={storeError ? 'text-xs text-danger' : 'text-xs text-muted-foreground'}>
+              {storeError ?? `เฉพาะ Admin ที่เพิ่มหรือลด${place}ได้ — ทุก${place}ใช้รายการงานชุดเดียวกัน`}
+            </p>
+          </>
+        ) : (
+          <>
+            <div className="flex items-start gap-2 rounded-lg border bg-muted/40 px-2.5 py-2 text-sm">
+              <ul className="flex min-w-0 flex-1 flex-wrap gap-x-3 gap-y-1.5">
+                {proposal.stores.map((s) => (
+                  <li key={s.id} className="flex min-w-0 items-center gap-1.5">
+                    <StoreLogo store={s} size="sm" />
+                    <span className="truncate">{s.name}</span>
+                  </li>
+                ))}
+              </ul>
+              <LockIcon className="mt-1 size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+            </div>
+            <p className="text-xs text-muted-foreground">{place}ล็อกไว้หลังสร้างโปรเจกต์ — ติดต่อ Admin หากต้องการเพิ่มหรือลด{place}</p>
+          </>
         )}
       </div>
 

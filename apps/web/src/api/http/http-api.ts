@@ -228,12 +228,12 @@ export const httpApi = {
       }),
     get: (proposalId: string) => get<ProposalDetail>(`/proposals/${id(proposalId)}`),
     report: (proposalId: string) => get<ProposalReport>(`/proposals/${id(proposalId)}/report`),
-    create: (input: CreateProposalInput) => post<Proposal[]>('/proposals', input),
+    create: (input: CreateProposalInput) => post<Proposal>('/proposals', input),
     update: (proposalId: string, changes: UpdateProposalInput) => patch<Proposal>(`/proposals/${id(proposalId)}`, changes),
     changeStatus: (proposalId: string, status: ProposalStatus) => post<Proposal>(`/proposals/${id(proposalId)}/status`, { status }),
     changeTargetDate: (proposalId: string, targetDate: string, shiftTasks: boolean) =>
       post<Proposal>(`/proposals/${id(proposalId)}/target-date`, { targetDate, shiftTasks }),
-    duplicate: (proposalId: string, storeId: string, targetDate: string) => post<Proposal>(`/proposals/${id(proposalId)}/duplicate`, { storeId, targetDate }),
+    duplicate: (proposalId: string, storeIds: string[], targetDate: string) => post<Proposal>(`/proposals/${id(proposalId)}/duplicate`, { storeIds, targetDate }),
     remove: (proposalId: string) => del<true>(`/proposals/${id(proposalId)}`),
   },
 

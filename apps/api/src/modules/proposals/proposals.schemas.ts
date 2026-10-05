@@ -71,15 +71,18 @@ const planItemSchema = z.object(
   { message: 'รายการงานไม่ถูกต้อง' },
 )
 
+/** The stores of one proposal (create / ADMIN edit / duplicate). */
+const zStoreIds = z
+  .array(zRef('ไม่พบห้างที่เลือก'), { message: 'กรุณาเลือกห้างหรือแพลตฟอร์มอย่างน้อย 1 แห่ง' })
+  .min(1, 'กรุณาเลือกห้างหรือแพลตฟอร์มอย่างน้อย 1 แห่ง')
+  .max(50, 'เลือกห้างได้สูงสุด 50 แห่ง')
+
 export const createProposalSchema = z.object({
   productIds: z
     .array(zRef('ไม่พบสินค้าที่เลือก'), { message: 'กรุณาเลือกสินค้าอย่างน้อย 1 รายการ' })
     .min(1, 'กรุณาเลือกสินค้าอย่างน้อย 1 รายการ')
     .max(200, 'เลือกสินค้าได้สูงสุด 200 รายการ'),
-  storeIds: z
-    .array(zRef('ไม่พบห้างที่เลือก'), { message: 'กรุณาเลือกห้างหรือแพลตฟอร์มอย่างน้อย 1 แห่ง' })
-    .min(1, 'กรุณาเลือกห้างหรือแพลตฟอร์มอย่างน้อย 1 แห่ง')
-    .max(50, 'เลือกห้างได้สูงสุด 50 แห่ง'),
+  storeIds: zStoreIds,
   // A new proposal can't launch in the past (today in Asia/Bangkok is still allowed).
   targetDate: zLaunchDate().refine((v) => v >= todayBangkok(), `วันวางขายผ่านมาแล้ว — เลือกวันที่ ${LAUNCH_DAY_OF_MONTH} ของเดือนถัดไปแทน`),
   shelfTypeId: zRef('กรุณาเลือกประเภท Shelf'),
@@ -104,6 +107,8 @@ export const updateProposalSchema = z.object({
   memberIds: z.array(zRef('ไม่พบผู้ใช้ที่เลือก')).max(200, 'เลือกทีมงานได้สูงสุด 200 คน').optional(),
   ownerId: z.preprocess(blankToUndefined, zRef('ไม่พบผู้ใช้ที่เลือก').optional()),
   shelfTypeId: z.preprocess(blankToUndefined, zRef('ไม่พบประเภท Shelf').optional()),
+  /** ADMIN only (checked in the service). */
+  storeIds: zStoreIds.optional(),
 })
 export type UpdateProposalBody = z.output<typeof updateProposalSchema>
 
@@ -119,7 +124,7 @@ export const targetDateSchema = z.object({
 export type TargetDateBody = z.output<typeof targetDateSchema>
 
 export const duplicateSchema = z.object({
-  storeId: zRef('ห้างปลายทางไม่ถูกต้อง'),
+  storeIds: zStoreIds,
   targetDate: zLaunchDate(),
 })
 export type DuplicateBody = z.output<typeof duplicateSchema>

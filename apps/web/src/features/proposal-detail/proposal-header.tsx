@@ -1,7 +1,7 @@
 import { AlertTriangleIcon, CheckCircle2Icon, StickyNoteIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { ProposalDetail } from '@/api'
-import { ChannelBadge, ShelfTypeBadge, StatusBadge, StoreLogo } from '@/components/common/badges'
+import { ChannelBadge, ShelfTypeBadge, StatusBadge, StoreLogos } from '@/components/common/badges'
 import { LaunchCountdown, PageHeader, ProgressRing } from '@/components/common/misc'
 import { AvatarStack, UserAvatar } from '@/components/common/user-avatar'
 import { displayName, formatDate, relativeDay, today } from '@/lib/format'
@@ -65,13 +65,13 @@ export function ProposalHeader({ proposal }: { proposal: ProposalDetail }) {
   return (
     <section className="rounded-xl border bg-card" aria-label="ข้อมูลการเสนอสินค้า">
       <div className="flex items-start gap-3 p-4 sm:gap-4 sm:p-5">
-        <StoreLogo store={proposal.store} size="lg" className="sm:hidden" />
-        <StoreLogo store={proposal.store} size="xl" className="hidden sm:inline-flex" />
+        <StoreLogos stores={proposal.stores} size="lg" className="sm:hidden" />
+        <StoreLogos stores={proposal.stores} size="xl" className="hidden sm:inline-flex" />
         <PageHeader
           className="min-w-0 flex-1 items-start"
           eyebrow={
             <span className="tabular">
-              {proposal.code} · {proposal.store.name}
+              {proposal.code} · {proposal.stores.map((s) => s.name).join(', ')}
             </span>
           }
           title={<span className="break-words">{proposal.title}</span>}

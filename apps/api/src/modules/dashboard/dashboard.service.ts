@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { addDays, can, isDueWithin, isOverdue, todayBangkok, type Proposal, type ProposalStatus, type Store, type Task, type User } from '@flowtrade/shared'
 import type { DashboardSummary, HomeSummary, ProposalListItem } from '@flowtrade/shared/api-types'
 import { fromDateOnly, iso } from '../../common/dates.js'
-import { proposalInclude, taskInclude, toProposal, toStore, toTask, toUser } from '../../common/mappers.js'
+import { proposalWithStoresInclude, taskInclude, toProposal, toStore, toStores, toTask, toUser } from '../../common/mappers.js'
 import type { Prisma } from '../../generated/prisma/client.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import {
@@ -24,11 +24,11 @@ const DAY_MS = 86_400_000
 const ALL_STATUSES: ProposalStatus[] = ['DRAFT', 'IN_PROGRESS', 'ON_HOLD', 'COMPLETED', 'CANCELLED']
 const CHANNELS = ['OFFLINE', 'ONLINE'] as const
 
-/** "My tasks" rows for the home page: the task, its proposal (+ store) and up to two ancestors (max depth is 3). */
+/** "My tasks" rows for the home page: the task, its proposal (+ stores) and up to two ancestors (max depth is 3). */
 const ancestorSelect = { id: true, title: true, sortOrder: true } satisfies Prisma.TaskSelect
 const homeTaskInclude = {
   ...taskInclude,
-  proposal: { include: { ...proposalInclude, store: true } },
+  proposal: { include: proposalWithStoresInclude },
   parent: { select: { ...ancestorSelect, parent: { select: ancestorSelect } } },
 } satisfies Prisma.TaskInclude
 
@@ -73,11 +73,11 @@ export class DashboardService {
 
     const toItem = await this.listItemBuilder([...myRows, ...upcomingRows], t)
 
-    const proposals = new Map<string, { proposal: Proposal; store: Store }>()
+    const proposals = new Map<string, { proposal: Proposal; stores: Store[] }>()
     const contextOf = (row: HomeTaskRow) => {
       let p = proposals.get(row.proposalId)
       if (!p) {
-        p = { proposal: toProposal(row.proposal), store: toStore(row.proposal.store) }
+        p = { proposal: toProposal(row.proposal), stores: toStores(row.proposal.stores) }
         proposals.set(row.proposalId, p)
       }
       return p
@@ -90,8 +90,8 @@ export class DashboardService {
       })
       .sort((a, b) => compareTreeOrder(a.key, b.key))
     const ctx = (m: (typeof mine)[number]) => {
-      const { proposal, store } = contextOf(m.row)
-      return withContext(m.task, proposal, store, m.path)
+      const { proposal, stores } = contextOf(m.row)
+      return withContext(m.task, proposal, stores, m.path)
     }
 
     const open = mine.filter((m) => !m.task.isDone)
@@ -119,7 +119,7 @@ export class DashboardService {
   async summary(): Promise<DashboardSummary> {
     const t = todayBangkok()
     const [all, activeRows, storeRows, userRows] = await Promise.all([
-      this.prisma.proposal.findMany({ select: { id: true, status: true, storeId: true, completedAt: true } }),
+      this.prisma.proposal.findMany({ select: { id: true, status: true, completedAt: true, stores: { select: { storeId: true } } } }),
       this.prisma.proposal.findMany({ where: { status: { notIn: CLOSED_STATUSES } }, include: listInclude, orderBy: { code: 'asc' } }),
       this.prisma.store.findMany({ where: { isActive: true }, orderBy: [{ channel: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }] }),
       this.prisma.user.findMany({ where: { isActive: true } }),
@@ -157,7 +157,7 @@ export class DashboardService {
     const items = activeRows.map((row) => toListItem(row, tasksByProposal.get(row.id) ?? [], t))
     const proposals = new Map(items.map((p) => [p.id, p]))
     const plain = new Map(activeRows.map((row) => [row.id, toProposal(row)]))
-    const ctx = (x: (typeof tasks)[number]) => withContext(x.task, plain.get(x.task.proposalId)!, proposals.get(x.task.proposalId)!.store, x.path)
+    const ctx = (x: (typeof tasks)[number]) => withContext(x.task, plain.get(x.task.proposalId)!, proposals.get(x.task.proposalId)!.stores, x.path)
 
     const month = t.slice(0, 7)
     const in14 = addDays(t, 14)
@@ -176,12 +176,13 @@ export class DashboardService {
       },
       byStatus: ALL_STATUSES.map((status) => ({ status, count: all.filter((p) => p.status === status).length })),
       byChannel: CHANNELS.map((channel) => ({ channel, count: items.filter((p) => p.channel === channel).length })),
+      // A proposal listed at several stores counts once at each of them.
       byStore: storeRows
         .map((s) => ({
           store: toStore(s),
-          active: items.filter((p) => p.storeId === s.id).length,
-          completed: all.filter((p) => p.storeId === s.id && p.status === 'COMPLETED').length,
-          overdueTasks: overdueLeaves.filter((x) => proposals.get(x.task.proposalId)?.storeId === s.id).length,
+          active: items.filter((p) => p.storeIds.includes(s.id)).length,
+          completed: all.filter((p) => p.status === 'COMPLETED' && p.stores.some((x) => x.storeId === s.id)).length,
+          overdueTasks: overdueLeaves.filter((x) => proposals.get(x.task.proposalId)?.storeIds.includes(s.id)).length,
         }))
         .filter((r) => r.active + r.completed > 0),
       upcomingLaunches: items.filter((p) => p.targetDate >= t && p.targetDate <= in45).sort(byTargetDate),

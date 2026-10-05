@@ -83,8 +83,11 @@ export function WizardSummary({
 
       {stores.length > 0 && (
         <div className="mt-3 rounded-lg bg-brand-soft px-3 py-2.5 text-sm text-brand">
-          จะสร้าง <span className="tabular font-semibold">{stores.length}</span> โปรเจกต์
-          <span className="text-brand/80"> · {unit}ละ 1 โปรเจกต์</span>
+          จะสร้าง 1 โปรเจกต์
+          <span className="text-brand/80">
+            {' '}
+            · <span className="tabular">{stores.length}</span> {unit} ใช้รายการงานชุดเดียวกัน
+          </span>
         </div>
       )}
     </div>

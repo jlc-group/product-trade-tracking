@@ -1,4 +1,3 @@
-import type { Store } from '@flowtrade/shared'
 import { ArrowLeftIcon, ArrowRightIcon, CircleAlertIcon, CornerDownLeftIcon, ListChecksIcon, Loader2Icon, RocketIcon, XIcon } from 'lucide-react'
 import { useEffect, useId, useMemo, useReducer, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
@@ -49,7 +48,8 @@ export function NewProposalWizard() {
   // ---------- reference data ----------
   const { data: allStores = [] } = useStores()
   const { data: allShelfTypes = [] } = useShelfTypes()
-  const stores = state.storeIds.map((id) => allStores.find((s) => s.id === id)).filter((s): s is Store => !!s)
+  // Admin-defined order, like the proposal will show them.
+  const stores = allStores.filter((s) => state.storeIds.includes(s.id))
   const shelfType = allShelfTypes.find((s) => s.id === state.shelfTypeId) ?? null
 
   // ---------- template ----------
@@ -160,13 +160,8 @@ export function NewProposalWizard() {
         status: state.status,
       })
       const draft = state.status === 'DRAFT'
-      if (created.length === 1) {
-        toast.success(draft ? `บันทึกร่าง ${created[0].code} แล้ว` : `สร้าง ${created[0].code} เรียบร้อย เริ่มงานได้เลย`, { description: created[0].title })
-        navigate(`/proposals/${created[0].id}`, { replace: true })
-      } else {
-        toast.success(`สร้าง ${created.length} โปรเจกต์เรียบร้อย`, { description: created.map((p) => p.code).join(', ') })
-        navigate('/proposals?view=table', { replace: true })
-      }
+      toast.success(draft ? `บันทึกร่าง ${created.code} แล้ว` : `สร้าง ${created.code} เรียบร้อย เริ่มงานได้เลย`, { description: created.title })
+      navigate(`/proposals/${created.id}`, { replace: true })
     } catch {
       // The mutation hook already shows the error toast; stay on the review step so nothing is lost.
     }
@@ -338,7 +333,7 @@ export function NewProposalWizard() {
           {isLast ? (
             <Button type="button" size="lg" onClick={submit} disabled={!canSubmit} className={cn('ml-auto shrink-0 sm:ml-0')}>
               {create.isPending ? <Loader2Icon className="animate-spin" /> : <RocketIcon />}
-              {create.isPending ? 'กำลังสร้าง…' : state.status === 'DRAFT' ? `บันทึกร่าง ${stores.length} โปรเจกต์` : `สร้าง ${stores.length} โปรเจกต์`}
+              {create.isPending ? 'กำลังสร้าง…' : state.status === 'DRAFT' ? 'บันทึกร่าง' : 'สร้างโปรเจกต์'}
             </Button>
           ) : (
             <Button type="button" size="lg" onClick={goNext} disabled={!!issue} className="ml-auto shrink-0 sm:ml-0">

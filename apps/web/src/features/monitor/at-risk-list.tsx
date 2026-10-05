@@ -1,10 +1,10 @@
-import { diffDays } from '@flowtrade/shared'
+import { diffDays, storeNamesLabel } from '@flowtrade/shared'
 import { AlertTriangleIcon, ShieldCheckIcon, TimerIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import type { ProposalListItem } from '@/api/types'
 import { EmptyState, LaunchCountdown, ProgressBar } from '@/components/common/misc'
-import { StoreLogo } from '@/components/common/badges'
+import { StoreLogos } from '@/components/common/badges'
 import { UserAvatar } from '@/components/common/user-avatar'
 import { formatDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -40,11 +40,11 @@ function AtRiskRow({ item, today }: { item: ProposalListItem; today: string }) {
       >
         {/* identity */}
         <div className="col-span-2 flex min-w-0 items-center gap-3 @lg:col-span-1">
-          <StoreLogo store={item.store} size="md" />
+          <StoreLogos stores={item.stores} size="md" max={2} />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium group-hover:text-primary">{item.title}</p>
             <p className="truncate text-xs text-muted-foreground">
-              <span className="tabular">{item.code}</span> · {item.store.name}
+              <span className="tabular">{item.code}</span> · {storeNamesLabel(item.stores.map((s) => s.name))}
             </p>
           </div>
           <UserAvatar user={item.owner} size="sm" className="@lg:hidden" />

@@ -51,6 +51,7 @@ export async function resetToEmpty(prisma: PrismaService, adminSignIn?: string):
       await count('tasks', tx.task.deleteMany())
       await count('proposal_members', tx.proposalMember.deleteMany())
       await count('proposal_products', tx.proposalProduct.deleteMany())
+      await count('proposal_stores', tx.proposalStore.deleteMany())
       await count('proposals', tx.proposal.deleteMany())
       await count('proposal_counters', tx.proposalCounter.deleteMany())
       await count('task_template_items', tx.taskTemplateItem.deleteMany())

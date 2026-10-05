@@ -1,9 +1,10 @@
+import { storeNamesLabel } from '@flowtrade/shared'
 import { useId, type ReactNode } from 'react'
 import { AlertTriangleIcon, ArrowRightIcon, CalendarCheck2Icon, CheckCircle2Icon, CircleDotIcon, FolderPlusIcon, PartyPopperIcon, RocketIcon } from 'lucide-react'
 import { Link } from 'react-router'
 import type { HomeSummary, ProposalListItem, TaskWithContext } from '@/api'
 import { useAuth } from '@/auth/auth'
-import { ShelfTypeBadge, StatusBadge, StoreLogo } from '@/components/common/badges'
+import { ShelfTypeBadge, StatusBadge, StoreLogos } from '@/components/common/badges'
 import { EmptyState, LaunchCountdown, ProgressBar } from '@/components/common/misc'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -178,7 +179,7 @@ function ProjectCard({ p }: { p: ProposalListItem }) {
   return (
     <li className="group relative rounded-lg border p-3 transition-colors hover:border-primary/30 hover:bg-accent/30">
       <div className="flex items-start gap-3">
-        <StoreLogo store={p.store} size="md" />
+        <StoreLogos stores={p.stores} size="md" max={2} />
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <Link
@@ -259,7 +260,7 @@ export function LaunchesPanel({ launches }: { launches: ProposalListItem[] }) {
                   <span className="tabular text-base font-semibold">{d.format('D')}</span>
                   <span className="text-[10px] text-muted-foreground">{d.format('MMM')}</span>
                 </span>
-                <StoreLogo store={p.store} size="sm" />
+                <StoreLogos stores={p.stores} size="sm" max={2} />
                 <div className="min-w-0 flex-1">
                   <Link
                     to={`/proposals/${p.id}`}
@@ -268,7 +269,7 @@ export function LaunchesPanel({ launches }: { launches: ProposalListItem[] }) {
                     {p.title}
                   </Link>
                   <span className="block truncate text-xs text-muted-foreground">
-                    {p.store.name} · {p.shelfType.name}
+                    {storeNamesLabel(p.stores.map((s) => s.name))} · {p.shelfType.name}
                   </span>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-0.5">

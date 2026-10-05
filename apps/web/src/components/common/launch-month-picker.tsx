@@ -1,4 +1,4 @@
-import { diffDays, earliestOnTimeLaunch, isLaunchDate, LAUNCH_DAY_OF_MONTH, launchDateOf, PREP_DAYS, prepStartOf, type ISODate, type Store } from '@flowtrade/shared'
+import { diffDays, earliestOnTimeLaunch, isLaunchDate, LAUNCH_DAY_OF_MONTH, launchDateOf, PREP_DAYS, prepStartOf, storeNamesLabel, type ISODate, type Store } from '@flowtrade/shared'
 import { CalendarRangeIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, TriangleAlertIcon, ZapIcon } from 'lucide-react'
 import { useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import type { ProposalListItem } from '@/api'
@@ -74,23 +74,27 @@ export function LaunchMonthPicker({ value, onChange, today, storeIds = [], exclu
   const yearText = (y: number) => (buddhistEra ? `พ.ศ. ${dayjs(`${y}-01-01`).format('BBBB')}` : `ค.ศ. ${y}`)
   const legacyValue = value && !isLaunchDate(value) ? value : null
 
+  const sharesStore = (p: ProposalListItem) => p.storeIds.some((id) => storeIds.includes(id))
   const months: MonthCell[] = Array.from({ length: 12 }, (_, index) => {
     const launch = launchDateOf(year, index + 1)
     const prep = prepStartOf(launch)
     const status: MonthStatus = launch < today ? 'past' : prep < today ? 'short' : 'onTime'
     const others = byMonth.get(launch.slice(0, 7)) ?? []
-    const clashes = others.filter((p) => storeIds.includes(p.storeId))
+    const clashes = others.filter(sharesStore)
     const grouped = new Map<string, MonthCell['stores'][number]>()
     for (const p of others) {
-      const entry = grouped.get(p.storeId)
-      if (entry) entry.count++
-      else grouped.set(p.storeId, { store: p.store, count: 1, clash: storeIds.includes(p.storeId) })
+      for (const store of p.stores) {
+        const entry = grouped.get(store.id)
+        if (entry) entry.count++
+        else grouped.set(store.id, { store, count: 1, clash: storeIds.includes(store.id) })
+      }
     }
     const stores = [...grouped.values()].sort((a, b) => Number(b.clash) - Number(a.clash))
     return { index, launch, prep, status, left: diffDays(today, launch), others, stores, clashes }
   })
   const selectedCell = value ? months.find((m) => m.launch.slice(0, 7) === value.slice(0, 7)) : undefined
-  const selectedClashes = value ? (byMonth.get(value.slice(0, 7)) ?? []).filter((p) => storeIds.includes(p.storeId)) : []
+  const selectedClashes = value ? (byMonth.get(value.slice(0, 7)) ?? []).filter(sharesStore) : []
+  const clashStoreNames = [...new Set(selectedClashes.flatMap((p) => p.stores.filter((s) => storeIds.includes(s.id)).map((s) => s.name)))]
 
   const jumpToEarliest = () => {
     setYear(yearOf(earliest))
@@ -200,7 +204,7 @@ export function LaunchMonthPicker({ value, onChange, today, storeIds = [], exclu
           <div className="flex items-start gap-2 rounded-lg bg-warning-soft px-3 py-2 text-xs text-warning-foreground" role="status">
             <TriangleAlertIcon className="mt-px size-3.5 shrink-0" />
             <span>
-              เดือนนี้มีสินค้าวางขายที่ {[...new Set(selectedClashes.map((p) => p.store.name))].join(', ')} อยู่แล้ว ({selectedClashes.map((p) => p.code).join(', ')}) — เลือกได้
+              เดือนนี้มีสินค้าวางขายที่ {clashStoreNames.join(', ')} อยู่แล้ว ({selectedClashes.map((p) => p.code).join(', ')}) — เลือกได้
               แต่ควรคุยกับทีมก่อน
             </span>
           </div>
@@ -345,7 +349,7 @@ function MonthTile({
           </p>
           {others.slice(0, 5).map((p) => (
             <p key={p.id} className="truncate">
-              {p.store.name} · {p.code} · {formatDate(p.targetDate, { withYear: false })}
+              {storeNamesLabel(p.stores.map((s) => s.name))} · {p.code} · {formatDate(p.targetDate, { withYear: false })}
             </p>
           ))}
           {others.length > 5 && <p className="opacity-80">และอีก {others.length - 5} โปรเจกต์</p>}

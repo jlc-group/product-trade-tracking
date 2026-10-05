@@ -92,7 +92,9 @@ function SummarySheet({ proposal, model, options, exportedAt, exportedBy }: { pr
           {internal && until && <span className="text-muted-foreground"> · {until}</span>}
         </Fact>
         <Fact label="เริ่มเตรียม">{formatDate(prepStartOf(proposal.targetDate), { long: true })}</Fact>
-        <Fact label={storeWord(proposal.channel)}>{proposal.store.name}</Fact>
+        <Fact label={proposal.stores.length > 1 ? `${storeWord(proposal.channel)} (${proposal.stores.length})` : storeWord(proposal.channel)}>
+          {proposal.stores.map((s) => s.name).join(', ')}
+        </Fact>
         <Fact label={`สินค้า (${proposal.products.length})`}>
           {proposal.products.length === 0 ? (
             '—'

@@ -9,6 +9,7 @@ export const PERMISSIONS = [
   'proposal.read.all',
   'proposal.update.any',
   'proposal.delete.any',
+  'proposal.stores.edit',
   'task.manage.any',
   'dashboard.monitor',
   'store.manage',
@@ -42,6 +43,7 @@ export const PERMISSION_LABEL: Record<Permission, string> = {
   'proposal.read.all': 'ดูการเสนอสินค้าทั้งหมด',
   'proposal.update.any': 'แก้ไขการเสนอสินค้าของทุกคน',
   'proposal.delete.any': 'ลบการเสนอสินค้าของทุกคน',
+  'proposal.stores.edit': 'เปลี่ยนห้าง / แพลตฟอร์มของโปรเจกต์ที่สร้างแล้ว',
   'task.manage.any': 'จัดการ Task ในทุกโปรเจกต์',
   'dashboard.monitor': 'ดูหน้า Monitor ภาพรวม',
   'store.manage': 'จัดการห้าง / แพลตฟอร์ม',
@@ -78,10 +80,15 @@ export function canViewProposal(
   return can(user, 'proposal.read.all') || isProposalMember(user, proposal) || assignedTaskCount > 0
 }
 
-/** Edit proposal header (title, products, members, target date, status). */
+/** Edit proposal header (title, products, members, target date, status). Its stores need canEditProposalStores. */
 export function canEditProposal(user: Actor | null | undefined, proposal: Pick<Proposal, 'ownerId'>) {
   if (!user) return false
   return can(user, 'proposal.update.any') || isProposalOwner(user, proposal)
+}
+
+/** Stores are fixed once a proposal exists; only ADMIN may add or remove them. */
+export function canEditProposalStores(user: Actor | null | undefined) {
+  return can(user, 'proposal.stores.edit')
 }
 
 export function canDeleteProposal(user: Actor | null | undefined, proposal: Pick<Proposal, 'ownerId' | 'status'>) {

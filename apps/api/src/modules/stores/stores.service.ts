@@ -36,7 +36,7 @@ export class StoresService {
 
   /** { [storeId]: number of proposals } — only stores that are referenced appear. */
   async usage(): Promise<Record<string, number>> {
-    const groups = await this.prisma.proposal.groupBy({ by: ['storeId'], _count: { _all: true } })
+    const groups = await this.prisma.proposalStore.groupBy({ by: ['storeId'], _count: { _all: true } })
     return Object.fromEntries(groups.map((g) => [g.storeId, g._count._all]))
   }
 
@@ -70,7 +70,7 @@ export class StoresService {
         const store = await tx.store.findUnique({ where: { id } })
         if (!store) throw notFound('ห้าง')
         const channel = patch.channel ?? store.channel
-        if (channel !== store.channel && (await tx.proposal.count({ where: { storeId: id } })) > 0) {
+        if (channel !== store.channel && (await tx.proposalStore.count({ where: { storeId: id } })) > 0) {
           throw invalid('เปลี่ยนช่องทางไม่ได้ เพราะมีการเสนอสินค้าที่ใช้ห้างนี้อยู่', { channel: 'เปลี่ยนช่องทางไม่ได้ เพราะมีการเสนอสินค้าที่ใช้ห้างนี้อยู่' })
         }
         const name = patch.name ?? store.name
@@ -102,14 +102,14 @@ export class StoresService {
         const store = await tx.store.findUnique({ where: { id } })
         if (!store) throw notFound('ห้าง')
         name = store.name
-        const used = await tx.proposal.count({ where: { storeId: id } })
+        const used = await tx.proposalStore.count({ where: { storeId: id } })
         if (used > 0) throw inUse(used, store.name)
         await tx.store.delete({ where: { id } })
         await this.activity.log(tx, actor, 'store.delete', 'STORE', id, null, `ลบ ${store.name}`)
       })
     } catch (e) {
       // A proposal was created between the count and the delete (FK RESTRICT).
-      if (isPrismaError(e, 'P2003')) throw inUse(await this.prisma.proposal.count({ where: { storeId: id } }), name)
+      if (isPrismaError(e, 'P2003')) throw inUse(await this.prisma.proposalStore.count({ where: { storeId: id } }), name)
       throw e
     }
     return true

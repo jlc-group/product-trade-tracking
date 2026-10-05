@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { useUserLookup } from '@/api/hooks'
 import type { TaskWithContext } from '@/api/types'
-import { PriorityBadge, StoreLogo } from '@/components/common/badges'
+import { PriorityBadge, StoreLogos } from '@/components/common/badges'
 import { EmptyState } from '@/components/common/misc'
 import { AvatarStack } from '@/components/common/user-avatar'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -104,7 +104,7 @@ export function OverdueTasks({ items, className }: { items: TaskWithContext[]; c
                     </TableCell>
                     <TableCell className="max-w-0 w-[28%] py-2.5">
                       <div className="flex min-w-0 items-center gap-2">
-                        <StoreLogo store={x.store} size="sm" />
+                        <StoreLogos stores={x.stores} size="sm" max={2} />
                         <span className="min-w-0 leading-tight">
                           <span className="tabular block text-xs font-medium">{x.proposal.code}</span>
                           <span className="block truncate text-xs text-muted-foreground">{x.proposal.title}</span>
@@ -139,7 +139,7 @@ export function OverdueTasks({ items, className }: { items: TaskWithContext[]; c
                     <PathLine x={x} />
                   </div>
                   <div className="flex items-center gap-2">
-                    <StoreLogo store={x.store} size="sm" />
+                    <StoreLogos stores={x.stores} size="sm" max={2} />
                     <span className="tabular min-w-0 flex-1 truncate text-xs text-muted-foreground">{x.proposal.code}</span>
                     <span
                       className="inline-flex h-6 shrink-0 items-center rounded-md bg-danger-soft px-1.5 text-xs font-medium whitespace-nowrap text-danger tabular"

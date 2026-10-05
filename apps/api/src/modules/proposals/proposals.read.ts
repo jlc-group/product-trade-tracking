@@ -6,7 +6,7 @@ import { can, computeProgress, isOverdue, todayBangkok, type ISODate, type Propo
 import type { ProposalDetail, ProposalListItem } from '@flowtrade/shared/api-types'
 import { toDateOnly } from '../../common/dates.js'
 import { notFound } from '../../common/errors.js'
-import { proposalInclude, templateInclude, toProduct, toProposal, toShelfType, toStore, toTemplate, toUser } from '../../common/mappers.js'
+import { proposalInclude, proposalWithStoresInclude, templateInclude, toProduct, toProposal, toShelfType, toStores, toTemplate, toUser } from '../../common/mappers.js'
 import { ProposalAccessService } from '../../common/proposal-access.service.js'
 import type { Prisma } from '../../generated/prisma/client.js'
 import type { Db } from '../../prisma/prisma.service.js'
@@ -16,9 +16,9 @@ import { UUID_RE, type ProposalListQuery } from './proposals.schemas.js'
 
 /** Everything a ProposalListItem needs except the tasks (loaded in one batch query). */
 export const proposalListInclude = {
+  stores: proposalWithStoresInclude.stores,
   members: proposalInclude.members,
   products: { select: { productId: true, product: true }, orderBy: { sortOrder: 'asc' } },
-  store: true,
   shelfType: true,
   owner: true,
 } satisfies Prisma.ProposalInclude
@@ -75,7 +75,7 @@ export function summarize(proposal: Proposal, tasks: SummaryTask[], today: ISODa
 export function toListItem(row: ProposalListRow, tasks: SummaryTask[], today: ISODate): ProposalListItem {
   return {
     ...summarize(toProposal(row), tasks, today),
-    store: toStore(row.store),
+    stores: toStores(row.stores),
     shelfType: toShelfType(row.shelfType),
     owner: toUser(row.owner),
     products: row.products.map((p) => toProduct(p.product)),
@@ -129,7 +129,7 @@ export class ProposalsReadService {
     if (status === 'ACTIVE') and.push({ status: { in: ['DRAFT', 'IN_PROGRESS', 'ON_HOLD'] } })
     else if (status !== 'ALL') and.push({ status })
     if (f.channel) and.push({ channel: f.channel })
-    if (f.storeId) and.push({ storeId: f.storeId })
+    if (f.storeId) and.push({ stores: { some: { storeId: f.storeId } } })
     if (f.shelfTypeId) and.push({ shelfTypeId: f.shelfTypeId })
     if (f.ownerId) and.push({ ownerId: f.ownerId })
 
@@ -137,7 +137,7 @@ export class ProposalsReadService {
     const q = f.q ?? ''
     if (q.trim()) {
       rows = rows.filter((r) =>
-        matchesQuery(q, r.code, r.title, r.store.name, r.owner.name, ...r.products.map((x) => x.product.name), ...r.products.map((x) => x.product.sku)),
+        matchesQuery(q, r.code, r.title, ...r.stores.map((x) => x.store.name), r.owner.name, ...r.products.map((x) => x.product.name), ...r.products.map((x) => x.product.sku)),
       )
     }
     return this.buildListItems(db, rows)

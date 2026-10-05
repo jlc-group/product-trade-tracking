@@ -26,7 +26,7 @@ import type { TaskWithContext } from '@flowtrade/shared/api-types'
 import { ActivityService } from '../../common/activity.service.js'
 import { conflict, forbidden, invalid, notFound } from '../../common/errors.js'
 import { fromDateOnly } from '../../common/dates.js'
-import { detailFieldsJson, proposalInclude, taskInclude, toProposal, toStore, toTask } from '../../common/mappers.js'
+import { detailFieldsJson, proposalWithStoresInclude, taskInclude, toProposal, toStores, toTask } from '../../common/mappers.js'
 import { ProposalAccessService } from '../../common/proposal-access.service.js'
 import { PrismaService, type Db } from '../../prisma/prisma.service.js'
 import { assigneeRows, clampIndex, lockProposal, TaskTree, validateDates, type TreeNode } from './task-tree.js'
@@ -104,7 +104,7 @@ export class TasksService {
       },
       include: {
         ...taskInclude,
-        proposal: { include: { ...proposalInclude, store: true } },
+        proposal: { include: proposalWithStoresInclude },
         // Max depth is 3, so two parent hops give the whole path.
         parent: { select: { title: true, parent: { select: { title: true } } } },
       },
@@ -119,7 +119,7 @@ export class TasksService {
       .map(({ row, task }) => ({
         task,
         proposal: toProposal(row.proposal),
-        store: toStore(row.proposal.store),
+        stores: toStores(row.proposal.stores),
         path: [row.parent?.parent?.title, row.parent?.title].filter((t): t is string => t !== undefined),
       }))
   }

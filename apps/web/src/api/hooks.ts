@@ -239,7 +239,7 @@ export function useChangeTargetDate() {
 export function useDuplicateProposal() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, storeId, targetDate }: { id: string; storeId: string; targetDate: string }) => api.proposals.duplicate(id, storeId, targetDate),
+    mutationFn: ({ id, storeIds, targetDate }: { id: string; storeIds: string[]; targetDate: string }) => api.proposals.duplicate(id, storeIds, targetDate),
     onSuccess: () => invalidateWork(qc),
     onError,
   })
