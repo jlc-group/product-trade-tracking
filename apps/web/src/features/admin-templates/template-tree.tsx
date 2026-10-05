@@ -1,4 +1,4 @@
-import { addDays, DETAIL_FIELDS_MAX, DETAIL_LABEL_MAX, LEVEL_LABEL, MAX_TASK_LEVEL, type ISODate, type TaskTemplateItem } from '@flowtrade/shared'
+import { addDays, DETAIL_FIELDS_MAX, DETAIL_LABEL_MAX, LEVEL_LABEL, MAX_TASK_LEVEL, PREP_DAYS, type ISODate, type TaskTemplateItem } from '@flowtrade/shared'
 import { ArrowDownIcon, ArrowUpIcon, CalendarDaysIcon, ChevronDownIcon, ChevronRightIcon, CornerDownRightIcon, PlusIcon, TableIcon, Trash2Icon, XIcon } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
@@ -8,7 +8,7 @@ import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '
 import { Label } from '@/components/ui/label'
 import { formatDate, formatDateRange } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { offsetLabel, offsetPhrase, type ItemIssue, type Items } from './tree-ops'
+import { offsetLabel, offsetOfPrepDay, offsetPhrase, prepDay, type ItemIssue, type Items } from './tree-ops'
 
 export interface TreeActions {
   onUpdate: (id: string, patch: Partial<Pick<TaskTemplateItem, 'title' | 'startOffsetDays' | 'dueOffsetDays' | 'responsible' | 'fieldLabels'>>) => void
@@ -36,56 +36,119 @@ interface TreeProps extends TreeActions {
   exampleLaunch: ISODate
 }
 
-/** Number field that tolerates in-progress typing ("-", "") and commits whole numbers only. */
-function OffsetField({
+/**
+ * One day of the prep window, typed counting forward ("วันที่ 4") instead of as a signed offset ("-87").
+ * Tolerates in-progress typing ("", "-") and commits whole numbers only.
+ */
+function DayInput({
   id,
   label,
-  value,
+  offset,
   invalid,
   exampleLaunch,
   onChange,
 }: {
   id: string
   label: string
-  value: number
+  offset: number
   invalid: boolean
   exampleLaunch: ISODate
-  onChange: (n: number) => void
+  onChange: (offset: number) => void
 }) {
-  const [text, setText] = useState(String(value))
-  const [synced, setSynced] = useState(value)
-  if (value !== synced) {
-    setSynced(value)
-    setText(String(value))
+  const [text, setText] = useState(String(prepDay(offset)))
+  const [synced, setSynced] = useState(offset)
+  if (offset !== synced) {
+    setSynced(offset)
+    setText(String(prepDay(offset)))
   }
-  const example = Number.isInteger(value) ? formatDate(addDays(exampleLaunch, value)) : null
+  const example = Number.isInteger(offset) ? formatDate(addDays(exampleLaunch, offset)) : null
   return (
-    <div className="grid gap-1">
-      <Label htmlFor={id} className="text-[11px] font-normal whitespace-nowrap text-muted-foreground">
-        {label}
-        <span className={cn('tabular font-semibold', value < 0 ? 'text-brand' : value > 0 ? 'text-success' : 'text-danger')}>{offsetLabel(value)}</span>
-      </Label>
-      <Input
+    <InputGroup className="w-[5.5rem] bg-card">
+      <InputGroupAddon className="text-xs font-normal">วันที่</InputGroupAddon>
+      <InputGroupInput
         id={id}
         type="number"
         step={1}
         inputMode="numeric"
         value={text}
-        title={example ? `${offsetPhrase(value)} — เช่น ${example} ถ้าวางขาย ${formatDate(exampleLaunch)}` : offsetPhrase(value)}
+        aria-label={label}
+        title={example ? `${offsetPhrase(offset)} (${offsetLabel(offset)}) — เช่น ${example} ถ้าวางขาย ${formatDate(exampleLaunch)}` : offsetPhrase(offset)}
         aria-invalid={invalid || undefined}
         onChange={(e) => {
           const raw = e.target.value
           setText(raw)
           if (raw === '' || raw === '-') return
-          const n = Number(raw)
-          if (Number.isInteger(n)) {
+          const day = Number(raw)
+          if (Number.isInteger(day)) {
+            const n = offsetOfPrepDay(day)
             setSynced(n)
             onChange(n)
           }
         }}
-        onBlur={() => setText(String(value))}
-        className="tabular h-8 w-[4.75rem] text-right"
+        onBlur={() => setText(String(prepDay(offset)))}
+        className="tabular font-medium [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
       />
+    </InputGroup>
+  )
+}
+
+/** Start/due as days 1–90 of the prep window, with the duration and a mini bar showing where the task sits. */
+function ScheduleField({
+  base,
+  name,
+  start,
+  due,
+  startInvalid,
+  dueInvalid,
+  exampleLaunch,
+  onStart,
+  onDue,
+}: {
+  base: string
+  name: string
+  start: number
+  due: number
+  startInvalid: boolean
+  dueInvalid: boolean
+  exampleLaunch: ISODate
+  onStart: (offset: number) => void
+  onDue: (offset: number) => void
+}) {
+  const valid = Number.isInteger(start) && Number.isInteger(due) && due >= start
+  const from = prepDay(start)
+  const to = prepDay(due)
+  const outside = valid && (from < 1 || to > PREP_DAYS)
+  const pct = (day: number) => Math.min(100, Math.max(0, (day / PREP_DAYS) * 100))
+  return (
+    <div role="group" aria-labelledby={`${base}-sched`} className="grid gap-1">
+      <div className="flex items-center gap-2">
+        <span
+          id={`${base}-sched`}
+          className="text-[11px] whitespace-nowrap text-muted-foreground"
+          title={`วันที่ 1 = วันแรกที่เริ่มเตรียม (${offsetLabel(offsetOfPrepDay(1))}) · วันที่ ${PREP_DAYS} = วันสุดท้ายก่อนวางขาย (${offsetLabel(offsetOfPrepDay(PREP_DAYS))})`}
+        >
+          ช่วงเวลา (วันที่ 1–{PREP_DAYS})
+        </span>
+        <span className="relative h-1.5 min-w-12 flex-1 overflow-hidden rounded-full bg-foreground/10" aria-hidden>
+          {valid && (
+            <span
+              className={cn('absolute inset-y-0 min-w-1 rounded-full', outside ? 'bg-warning' : 'bg-brand')}
+              style={{ left: `${pct(from - 1)}%`, width: `${pct(to) - pct(from - 1)}%` }}
+            />
+          )}
+        </span>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <DayInput id={`${base}-start`} label={`วันเริ่มของ ${name}`} offset={start} invalid={startInvalid} exampleLaunch={exampleLaunch} onChange={onStart} />
+        <span className="text-xs text-muted-foreground">ถึง</span>
+        <DayInput id={`${base}-due`} label={`วันเสร็จของ ${name}`} offset={due} invalid={dueInvalid} exampleLaunch={exampleLaunch} onChange={onDue} />
+        <span
+          className={cn('tabular w-14 shrink-0 text-xs whitespace-nowrap', outside ? 'text-warning-foreground' : 'text-muted-foreground')}
+          title={outside ? (to > PREP_DAYS ? `เลยวันสุดท้ายก่อนวางขาย — วันที่ ${PREP_DAYS + 1} คือวันวางขาย` : 'เริ่มก่อนวันแรกของช่วงเตรียมงาน') : undefined}
+        >
+          {valid ? `${due - start + 1} วัน` : '—'}
+        </span>
+      </div>
     </div>
   )
 }
@@ -268,22 +331,17 @@ function Row({ item, index, count, props }: { item: TaskTemplateItem; index: num
         </div>
       </div>
 
-      <div className="flex flex-wrap items-end gap-2 pl-8 @3xl:pl-0">
-        <OffsetField
-          id={`${base}-start`}
-          label="เริ่ม"
-          value={item.startOffsetDays}
-          invalid={startIssue}
+      <div className="flex flex-wrap items-end gap-2 pl-8 @3xl:pl-3">
+        <ScheduleField
+          base={base}
+          name={name}
+          start={item.startOffsetDays}
+          due={item.dueOffsetDays}
+          startInvalid={startIssue}
+          dueInvalid={dueIssue}
           exampleLaunch={props.exampleLaunch}
-          onChange={(n) => props.onUpdate(item.id, { startOffsetDays: n })}
-        />
-        <OffsetField
-          id={`${base}-due`}
-          label="ถึง"
-          value={item.dueOffsetDays}
-          invalid={dueIssue}
-          exampleLaunch={props.exampleLaunch}
-          onChange={(n) => props.onUpdate(item.id, { dueOffsetDays: n })}
+          onStart={(n) => props.onUpdate(item.id, { startOffsetDays: n })}
+          onDue={(n) => props.onUpdate(item.id, { dueOffsetDays: n })}
         />
         <DepartmentField
           id={`${base}-resp`}

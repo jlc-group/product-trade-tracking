@@ -162,7 +162,7 @@ export function validateItems(items: Items): ItemIssue[] {
     if (!Number.isInteger(item.startOffsetDays)) issues.push({ id: item.id, field: 'start', message: `"${label}" วันเริ่มต้องเป็นจำนวนเต็ม` })
     if (!Number.isInteger(item.dueOffsetDays)) issues.push({ id: item.id, field: 'due', message: `"${label}" วันสิ้นสุดต้องเป็นจำนวนเต็ม` })
     if (item.dueOffsetDays < item.startOffsetDays) {
-      issues.push({ id: item.id, field: 'due', message: `"${label}" สิ้นสุด ${offsetLabel(item.dueOffsetDays)} อยู่ก่อนวันเริ่ม ${offsetLabel(item.startOffsetDays)} — เลื่อนวันสิ้นสุดให้ไม่ก่อนวันเริ่ม` })
+      issues.push({ id: item.id, field: 'due', message: `"${label}" วันเสร็จ (วันที่ ${prepDay(item.dueOffsetDays)}) มาก่อนวันเริ่ม (วันที่ ${prepDay(item.startOffsetDays)}) — ให้วันเสร็จเป็นวันเดียวกันหรือหลังวันเริ่ม` })
     }
     if (depthOf(items, item.id) > MAX_TASK_LEVEL) issues.push({ id: item.id, field: 'level', message: `"${label}" ลึกเกิน ${MAX_TASK_LEVEL} ระดับ (Task → Sub task → Mini task)` })
   }
@@ -174,6 +174,10 @@ export function offsetLabel(n: number) {
   if (!Number.isFinite(n) || n === 0) return 'D0'
   return n > 0 ? `D+${n}` : `D${n}`
 }
+
+/** Offset → day of the standard prep window, counted forward: D-90 → 1, D-1 → 90, D0 (launch) → 91. */
+export const prepDay = (offset: number) => offset + PREP_DAYS + 1
+export const offsetOfPrepDay = (day: number) => day - PREP_DAYS - 1
 
 export function offsetPhrase(n: number) {
   if (n === 0) return 'วันวางขาย'
