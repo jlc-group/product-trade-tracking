@@ -1,4 +1,4 @@
-import { CHANNEL_TERMS, prepStartOf, templateLeadDays, type ShelfType, type Store, type TaskTemplate, type User } from '@flowtrade/shared'
+import { CHANNEL_TERMS, prepStartOf, PROPOSAL_TITLE_MAX, templateLeadDays, type ShelfType, type Store, type TaskTemplate, type User } from '@flowtrade/shared'
 import { AlertTriangleIcon, FileTextIcon, ListTreeIcon, PlayIcon, SparklesIcon, UserPlusIcon, UsersIcon } from 'lucide-react'
 import { useId, type Dispatch, type ReactNode } from 'react'
 import type { TemplatePreviewItem } from '@/api'
@@ -196,7 +196,7 @@ export function StepReview({
             value={state.title}
             onChange={(e) => dispatch({ type: 'setTitle', title: e.target.value })}
             placeholder={placeholder}
-            maxLength={160}
+            maxLength={PROPOSAL_TITLE_MAX}
             aria-describedby={`${id}-title-hint`}
           />
           <p id={`${id}-title-hint`} className="text-xs text-muted-foreground">

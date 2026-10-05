@@ -70,7 +70,7 @@ export default function AdminMonitorPage() {
           <div className="grid gap-4 xl:grid-cols-12">
             <AtRiskList items={data.atRisk} today={data.today} className="xl:col-span-7" />
             <UpcomingLaunches items={data.upcomingLaunches} className="xl:col-span-5" />
-            <StoreChart data={data.byStore} className="xl:col-span-6" />
+            <StoreChart data={data.byStore} overdueTasks={data.overdueTasks} className="xl:col-span-6" />
             <WorkloadChart data={data.workload} className="xl:col-span-6" />
             <StatusChannelCard data={data} className="xl:col-span-4" />
             <OverdueTasks items={data.overdueTasks} className="xl:col-span-8" />

@@ -46,7 +46,15 @@ function StoreTick({ x, y, row, compact }: { x: number; y: number; row: Row | un
   )
 }
 
-export function StoreChart({ data, className }: { data: DashboardSummary['byStore']; className?: string }) {
+export function StoreChart({
+  data,
+  overdueTasks,
+  className,
+}: {
+  data: DashboardSummary['byStore']
+  overdueTasks: DashboardSummary['overdueTasks']
+  className?: string
+}) {
   const compact = useIsMobile()
   const rows = useMemo<Row[]>(
     () =>
@@ -56,7 +64,8 @@ export function StoreChart({ data, className }: { data: DashboardSummary['byStor
     [data],
   )
   const byId = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows])
-  const totalOverdue = rows.reduce((s, r) => s + r.overdueTasks, 0)
+  // Summing the rows would count a multi-store proposal once per store; count each task once, if one of its stores is shown.
+  const totalOverdue = overdueTasks.filter((x) => x.stores.some((s) => byId.has(s.id))).length
 
   if (rows.length === 0) {
     return (

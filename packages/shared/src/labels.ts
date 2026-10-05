@@ -76,9 +76,19 @@ export function storeNamesLabel(names: readonly string[], max = 3): string {
   return names.length <= max ? names.join(', ') : `${names.slice(0, max).join(', ')} +${names.length - max}`
 }
 
+/** Longest title the proposal title inputs accept (the API allows 200). */
+export const PROPOSAL_TITLE_MAX = 160
+
+/** Cuts a generated title to PROPOSAL_TITLE_MAX, ending in "…", so saving it again never hits the API limit. */
+export function clipProposalTitle(title: string): string {
+  if (title.length <= PROPOSAL_TITLE_MAX) return title
+  // Don't leave half of a surrogate pair (emoji) before the "…".
+  return `${title.slice(0, PROPOSAL_TITLE_MAX - 1).replace(/[\uD800-\uDBFF]$/, '').trimEnd()}…`
+}
+
 /** The title a proposal gets when none is typed: "<first product> +N → <stores>". */
 export function autoProposalTitle(productNames: readonly string[], storeNames: readonly string[]): string {
   if (productNames.length === 0) return ''
   const head = `${productNames[0]}${productNames.length > 1 ? ` +${productNames.length - 1}` : ''}`
-  return storeNames.length > 0 ? `${head} → ${storeNamesLabel(storeNames)}` : head
+  return clipProposalTitle(storeNames.length > 0 ? `${head} → ${storeNamesLabel(storeNames)}` : head)
 }

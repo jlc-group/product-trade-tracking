@@ -7,6 +7,7 @@ import {
   canDeleteProposal,
   canEditProposal,
   canEditProposalStores,
+  clipProposalTitle,
   diffDays,
   normalizePlan,
   planFromTemplate,
@@ -363,7 +364,7 @@ export class ProposalsService {
       const row = await tx.proposal.create({
         data: {
           code,
-          title: source.title.replace(/→ .+$/, () => `→ ${storeNamesLabel(storeNames)}`),
+          title: clipProposalTitle(source.title.replace(/→ .+$/, () => `→ ${storeNamesLabel(storeNames)}`)),
           channel: source.channel,
           stores: { createMany: { data: stores.map((s) => ({ storeId: s.id })) } },
           shelfTypeId: source.shelfTypeId,

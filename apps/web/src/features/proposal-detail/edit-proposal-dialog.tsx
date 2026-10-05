@@ -1,4 +1,4 @@
-import { can, canEditProposalStores, CHANNEL_TERMS, type User } from '@flowtrade/shared'
+import { can, canEditProposalStores, CHANNEL_TERMS, PROPOSAL_TITLE_MAX, type User } from '@flowtrade/shared'
 import { Loader2Icon, LockIcon, UserPlusIcon } from 'lucide-react'
 import { useId, useState, type FormEvent } from 'react'
 import { toast } from 'sonner'
@@ -87,10 +87,11 @@ function EditForm({ proposal, onDone }: { proposal: ProposalDetail; onDone: () =
     setSubmitted(true)
     if (!title.trim() || productIds.length === 0 || storeIds.length === 0) return
     const patch: UpdateProposalInput = {
-      title: title.trim(),
       note: note.trim() || null,
       productIds,
     }
+    // Only resend the title when it changed, so an over-long stored title never blocks other edits.
+    if (title.trim() !== proposal.title) patch.title = title.trim()
     if (shelfTypeId !== proposal.shelfTypeId) patch.shelfTypeId = shelfTypeId
     if (canChangeStores && !sameSet(storeIds, proposal.storeIds)) patch.storeIds = storeIds
     if (membersChanged) {
@@ -128,7 +129,7 @@ function EditForm({ proposal, onDone }: { proposal: ProposalDetail; onDone: () =
           onChange={(e) => setTitle(e.target.value)}
           aria-invalid={!!titleError || undefined}
           aria-describedby={titleError ? 'edit-title-error' : undefined}
-          maxLength={160}
+          maxLength={PROPOSAL_TITLE_MAX}
         />
         {titleError && (
           <p id="edit-title-error" className="text-xs text-danger">
