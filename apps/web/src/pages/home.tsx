@@ -1,11 +1,17 @@
 import { ListChecksIcon } from 'lucide-react'
 import { Link } from 'react-router'
-import type { HomeSummary } from '@/api'
+import type { HomeDashboard } from '@/api'
 import { errorMessage, useHome } from '@/api/hooks'
-import { useCurrentUser } from '@/auth/auth'
+import { useAuth, useCurrentUser } from '@/auth/auth'
 import { EmptyState, PageHeader } from '@/components/common/misc'
 import { Button } from '@/components/ui/button'
-import { HomeCounters, HomeSkeleton, LaunchesPanel, ProjectsPanel, TodoPanel } from '@/features/my-work/home-panels'
+import { AgendaPanel } from '@/features/home/agenda-panel'
+import { GettingStarted } from '@/features/home/getting-started'
+import { HomeSkeleton } from '@/features/home/home-skeleton'
+import { ProjectRounds } from '@/features/home/project-rounds'
+import { ResultsPanel } from '@/features/home/results-panel'
+import { summaryLine } from '@/features/home/summary-line'
+import { TeamStrip } from '@/features/home/team-strip'
 import { useTaskToggler } from '@/features/my-work/use-task-toggler'
 import { dayjs, formatDate, today } from '@/lib/format'
 
@@ -15,20 +21,16 @@ function greeting(hour: number) {
   return 'สวัสดีตอนเย็น'
 }
 
-/** One sentence that tells the user what today looks like. */
-function summaryLine(home: HomeSummary) {
-  const { overdue, dueToday } = home
-  if (overdue.length === 0 && dueToday.length === 0) {
-    return home.counts.open === 0 ? 'ไม่มีงานค้างเลย ใช้เวลาวางแผนโปรเจกต์ถัดไปได้เต็มที่' : 'วันนี้ไม่มีงานครบกำหนด ลองหยิบงานในสัปดาห์นี้มาทำล่วงหน้า'
-  }
-  const parts: string[] = []
-  if (dueToday.length > 0) parts.push(`งานครบกำหนดวันนี้ ${dueToday.length} งาน`)
-  if (overdue.length > 0) parts.push(`งานเลยกำหนด ${overdue.length} งานที่ควรเคลียร์ก่อน`)
-  return `คุณมี${parts.join(' และ')}`
+/** Involved in nothing yet: the getting-started card replaces the agenda, projects and results. */
+function isBlank(home: HomeDashboard) {
+  const { agenda } = home
+  return home.projects.length === 0 && home.onHold === 0 && agenda.items.length === 0 && agenda.laterTasks === 0 && agenda.parkedTasks === 0 && home.results.items.length === 0
 }
 
+/** "วันนี้ฉันต้องทำอะไร": my agenda, my projects by launch round, my latest buyer results (+ the department strip). */
 export default function HomePage() {
   const user = useCurrentUser()
+  const { can } = useAuth()
   const homeQuery = useHome()
   const toggler = useTaskToggler(homeQuery.dataUpdatedAt)
   const home = homeQuery.data
@@ -38,21 +40,22 @@ export default function HomePage() {
   return (
     <div className="@container space-y-6">
       <PageHeader
+        className="flex-nowrap items-start sm:flex-wrap sm:items-end"
         eyebrow={`วัน${dayjs(t).format('dddd')}ที่ ${formatDate(t, { long: true })}`}
         title={`${greeting(new Date().getHours())} คุณ${firstName}`}
-        description={home ? summaryLine(home) : 'กำลังเตรียมงานของวันนี้…'}
+        description={home ? summaryLine(home.agenda) : 'กำลังเตรียมงานของวันนี้…'}
         actions={
-          <Button asChild variant="outline" size="sm" className="gap-1.5">
+          <Button asChild variant="outline" size="sm" className="gap-1.5 max-sm:w-7 max-sm:px-0">
             <Link to="/my-tasks">
               <ListChecksIcon />
-              งานของฉันทั้งหมด
+              <span className="sr-only sm:not-sr-only">งานของฉันทั้งหมด</span>
             </Link>
           </Button>
         }
       />
 
       {homeQuery.isPending ? (
-        <HomeSkeleton />
+        <HomeSkeleton withStrip={can('dashboard.monitor')} />
       ) : homeQuery.isError ? (
         <EmptyState
           title="โหลดข้อมูลหน้าหลักไม่สำเร็จ"
@@ -65,14 +68,18 @@ export default function HomePage() {
         />
       ) : (
         <>
-          <HomeCounters counts={homeQuery.data.counts} />
-          <div className="grid items-start gap-6 @4xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
-            <TodoPanel home={homeQuery.data} toggler={toggler} />
-            <div className="grid min-w-0 gap-6">
-              <ProjectsPanel projects={homeQuery.data.myProposals} />
-              <LaunchesPanel launches={homeQuery.data.upcomingLaunches} />
+          {homeQuery.data.team && <TeamStrip team={homeQuery.data.team} />}
+          {isBlank(homeQuery.data) ? (
+            <GettingStarted canCreate={can('proposal.create')} canMonitor={can('dashboard.monitor')} />
+          ) : (
+            <div className="grid items-start gap-6 @4xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
+              <AgendaPanel agenda={homeQuery.data.agenda} today={homeQuery.data.today} toggler={toggler} />
+              <div className="grid min-w-0 gap-6">
+                <ProjectRounds projects={homeQuery.data.projects} onHold={homeQuery.data.onHold} today={homeQuery.data.today} />
+                <ResultsPanel results={homeQuery.data.results} />
+              </div>
             </div>
-          </div>
+          )}
         </>
       )}
     </div>

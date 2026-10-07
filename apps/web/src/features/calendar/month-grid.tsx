@@ -4,7 +4,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { dayjs, formatDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { LaunchChip, TaskLine } from './items'
-import { CELL_MAX_ITEMS, monthKey, monthWeeks, TASK_DOT, taskTone, WEEKDAYS, WEEKDAYS_FULL, type DayBucket } from './model'
+import { CELL_MAX_ITEMS, isCountedOverdue, monthKey, monthWeeks, TASK_DOT, WEEKDAYS, WEEKDAYS_FULL, type DayBucket } from './model'
 
 const STEP: Record<string, number> = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }
 
@@ -14,7 +14,7 @@ function dayAriaLabel(date: ISODate, bucket: DayBucket | undefined, today: ISODa
   else {
     if (bucket.launches.length) parts.push(`วางขาย ${bucket.launches.length} รายการ`)
     if (bucket.tasks.length) parts.push(`งานครบกำหนด ${bucket.tasks.length} งาน`)
-    const overdue = bucket.tasks.filter((t) => taskTone(t.task, today) === 'overdue').length
+    const overdue = bucket.tasks.filter((t) => isCountedOverdue(t, today)).length
     if (overdue) parts.push(`เลยกำหนด ${overdue} งาน`)
   }
   return parts.join(' · ')

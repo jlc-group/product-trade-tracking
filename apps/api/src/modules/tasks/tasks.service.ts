@@ -11,6 +11,7 @@ import {
   DETAIL_FIELDS_MAX,
   getDescendantIds,
   hasDetailPatch,
+  isCountableStatus,
   isDueWithin,
   isOverdue,
   MAX_TASK_LEVEL,
@@ -91,6 +92,10 @@ export class TasksService {
     return this.proposalTasks(this.prisma, proposalId)
   }
 
+  /**
+   * My tasks. `countable` = a leaf task of an IN_PROGRESS proposal: the only kind the due filters (overdue / today /
+   * week) list, so `due=overdue` equals the sidebar badge. `due=all` lists everything (parents, drafts, on hold).
+   */
   async mine(user: User, filters: MyTasksQuery): Promise<TaskWithContext[]> {
     const today = todayBangkok()
     const status = filters.status ?? 'open'
@@ -107,20 +112,24 @@ export class TasksService {
         proposal: { include: proposalWithStoresInclude },
         // Max depth is 3, so two parent hops give the whole path.
         parent: { select: { title: true, parent: { select: { title: true } } } },
+        _count: { select: { children: true } },
       },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     })
     return rows
-      .map((row) => ({ row, task: toTask(row) }))
-      .filter(({ task: x }) =>
-        due === 'overdue' ? isOverdue(x, today) : due === 'today' ? x.dueDate === today && !x.isDone : due === 'week' ? isDueWithin(x, today, 7) : true,
+      .map((row) => ({ row, task: toTask(row), countable: row._count.children === 0 && isCountableStatus(row.proposal.status) }))
+      .filter(({ task: x, countable }) =>
+        due === 'all'
+          ? true
+          : countable && (due === 'overdue' ? isOverdue(x, today) : due === 'today' ? x.dueDate === today && !x.isDone : isDueWithin(x, today, 7)),
       )
       .sort((a, b) => (a.task.dueDate ?? '9999').localeCompare(b.task.dueDate ?? '9999'))
-      .map(({ row, task }) => ({
+      .map(({ row, task, countable }) => ({
         task,
         proposal: toProposal(row.proposal),
         stores: toStores(row.proposal.stores),
         path: [row.parent?.parent?.title, row.parent?.title].filter((t): t is string => t !== undefined),
+        countable,
       }))
   }
 

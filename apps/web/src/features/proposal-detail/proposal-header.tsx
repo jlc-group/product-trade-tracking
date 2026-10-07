@@ -4,6 +4,8 @@ import type { ProposalDetail } from '@/api'
 import { ChannelBadge, ShelfTypeBadge, StatusBadge, StoreLogos } from '@/components/common/badges'
 import { LaunchCountdown, PageHeader, ProgressRing } from '@/components/common/misc'
 import { AvatarStack, UserAvatar } from '@/components/common/user-avatar'
+import { PresentationHeaderLine } from '@/features/presentation/header-line'
+import { ProductionHeaderLine } from '@/features/production/header-line'
 import { displayName, formatDate, relativeDay, today } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { PrepStartText } from './launch-summary'
@@ -51,6 +53,8 @@ function ProgressSummary({ proposal, className }: { proposal: ProposalDetail; cl
         ) : (
           <p className="text-xs text-muted-foreground">ไม่มีงานเลยกำหนด</p>
         )}
+        <PresentationHeaderLine proposal={proposal} />
+        <ProductionHeaderLine proposal={proposal} />
       </div>
     </div>
   )

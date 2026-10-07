@@ -10,7 +10,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { formatDate, relativeDay } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { LaunchRow, TaskRow } from './items'
-import { taskTone, weekdayName, type DayBucket, type Layer } from './model'
+import { isCountedOverdue, weekdayName, type DayBucket, type Layer } from './model'
 
 function Section({ title, count, tone, children }: { title: string; count: number; tone?: 'danger'; children: ReactNode }) {
   return (
@@ -46,7 +46,7 @@ export function DayPanel({
   const { can } = useAuth()
   const launches = bucket?.launches ?? []
   const tasks = bucket?.tasks ?? []
-  const overdue = tasks.filter((t) => taskTone(t.task, today) === 'overdue').length
+  const overdue = tasks.filter((t) => isCountedOverdue(t, today)).length
   const showLaunches = layers.includes('launches')
   const showTasks = layers.includes('tasks')
   const empty = launches.length + tasks.length === 0

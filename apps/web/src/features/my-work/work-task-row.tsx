@@ -1,7 +1,7 @@
 import { canToggleTask, LEVEL_LABEL } from '@flowtrade/shared'
 import { ChevronRightIcon, Loader2Icon } from 'lucide-react'
 import { Link } from 'react-router'
-import type { TaskWithContext } from '@/api'
+import type { TaskRowItem } from '@/api'
 import { useCurrentUser } from '@/auth/auth'
 import { PriorityBadge, StoreLogos } from '@/components/common/badges'
 import { DueChip } from '@/components/common/misc'
@@ -10,7 +10,7 @@ import { DepartmentChip } from '@/features/task-tree/department'
 import { cn } from '@/lib/utils'
 import type { TaskToggler } from './use-task-toggler'
 
-export const taskHref = (item: TaskWithContext) => `/proposals/${item.proposal.id}?task=${item.task.id}`
+export const taskHref = (item: Pick<TaskRowItem, 'task' | 'proposal'>) => `/proposals/${item.proposal.id}?task=${item.task.id}`
 
 /**
  * One assigned task in a cross-project list. The whole row is a link to the task inside its
@@ -23,7 +23,7 @@ export function WorkTaskRow({
   showPriority = true,
   className,
 }: {
-  item: TaskWithContext
+  item: TaskRowItem
   toggler: TaskToggler
   /** Show store logo + proposal code (hide when the group header already says which project). */
   showProject?: boolean

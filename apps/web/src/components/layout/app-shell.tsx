@@ -19,7 +19,7 @@ import {
 } from 'lucide-react'
 import { Suspense } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
-import { useHome, useMarkNotificationRead, useNotifications } from '@/api/hooks'
+import { useBadge, useMarkNotificationRead, useNotifications } from '@/api/hooks'
 import { useAuth, useCurrentUser } from '@/auth/auth'
 import { FullPageSpinner } from '@/components/common/full-page-spinner'
 import { UserAvatar } from '@/components/common/user-avatar'
@@ -85,7 +85,7 @@ function NavGroup({ label, items }: { label: string; items: NavItem[] }) {
   const { can } = useAuth()
   const { pathname } = useLocation()
   const { setOpenMobile } = useSidebar()
-  const { data: home } = useHome()
+  const { data: badge } = useBadge()
   const visible = items.filter((i) => !i.permission || can(i.permission))
   if (visible.length === 0) return null
   return (
@@ -103,8 +103,8 @@ function NavGroup({ label, items }: { label: string; items: NavItem[] }) {
                     <span>{item.label}</span>
                   </NavLink>
                 </SidebarMenuButton>
-                {item.to === '/my-tasks' && !!home?.counts.overdue && (
-                  <SidebarMenuBadge className="rounded-full bg-danger text-[10px] text-white">{home.counts.overdue}</SidebarMenuBadge>
+                {item.to === '/my-tasks' && !!badge?.overdueTasks && (
+                  <SidebarMenuBadge className="rounded-full bg-danger text-[10px] text-white">{badge.overdueTasks}</SidebarMenuBadge>
                 )}
               </SidebarMenuItem>
             )

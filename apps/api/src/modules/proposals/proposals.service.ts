@@ -23,11 +23,12 @@ import {
 } from '@flowtrade/shared'
 import { ActivityService } from '../../common/activity.service.js'
 import { fromDateOnly, toDateOnly } from '../../common/dates.js'
-import { forbidden, invalid, notFound } from '../../common/errors.js'
+import { conflict, forbidden, invalid, notFound } from '../../common/errors.js'
 import { detailFieldsJson, proposalInclude, taskInclude, templateInclude, toProposal, toTemplate } from '../../common/mappers.js'
 import { ProposalAccessService } from '../../common/proposal-access.service.js'
 import type { Prisma } from '../../generated/prisma/client.js'
 import { PrismaService, type Db } from '../../prisma/prisma.service.js'
+import { loadProductionDerived, notifyProductionChanges } from '../production/production.state.js'
 import { lockProposal } from '../tasks/task-tree.js'
 import type { CreateProposalBody, DuplicateBody, StatusBody, TargetDateBody, UpdateProposalBody } from './proposals.schemas.js'
 
@@ -215,7 +216,12 @@ export class ProposalsService {
 
   update(user: User, id: string, patch: UpdateProposalBody): Promise<Proposal> {
     return this.prisma.$transaction(async (tx) => {
+      // SKUs / stores decide which SKUs passed ("รอผลิต"): same lock order as presentation and production writes.
+      const movesPassed = !!(patch.productIds || patch.storeIds)
+      if (movesPassed) await lockProposal(tx, id)
       const proposal = await this.editable(tx, user, id, 'เฉพาะเจ้าของงานหรือผู้จัดการเท่านั้นที่แก้ไขได้')
+      const today = todayBangkok()
+      const production = movesPassed ? (await loadProductionDerived(tx, proposal, today)).derived : null
       const data: Prisma.ProposalUncheckedUpdateInput = { updatedAt: new Date() }
 
       let ownerId = proposal.ownerId
@@ -268,8 +274,15 @@ export class ProposalsService {
       if (patch.note !== undefined) data.note = patch.note?.trim() || null
 
       const row = await tx.proposal.update({ where: { id }, data, include: proposalInclude })
+      const updated = toProposal(row)
       await this.activity.log(tx, user, 'proposal.update', 'PROPOSAL', id, id, `แก้ไขข้อมูล ${row.code}${storeChange ? ` — ห้างเป็น ${storeChange}` : ''}`)
-      return toProposal(row)
+      // A cancelled project keeps its production history as it was (read-only), and nobody can act on new notices.
+      if (production && updated.status !== 'CANCELLED') {
+        // Drafts and skips of SKUs taken out would be invisible yet block deleting the product; confirmed rows stay (flagged).
+        await tx.productionItem.deleteMany({ where: { proposalId: id, productId: { notIn: updated.productIds }, confirmedAt: null } })
+        await notifyProductionChanges(tx, this.activity, user, updated, production, (await loadProductionDerived(tx, updated, today)).derived)
+      }
+      return updated
     })
   }
 
@@ -428,10 +441,16 @@ export class ProposalsService {
 
   remove(user: User, id: string): Promise<true> {
     return this.prisma.$transaction(async (tx) => {
+      // Proposal lock first (same order as production writes), so a confirm can't commit after the check below.
+      await lockProposal(tx, id)
       const proposal = await this.access.loadVisible(tx, user, id)
       if (!canDeleteProposal(user, proposal)) throw forbidden('ลบได้เฉพาะงานร่างของตัวเอง — งานที่เริ่มแล้วให้เปลี่ยนสถานะเป็น "ยกเลิก" แทน')
+      if ((await tx.productionItem.count({ where: { proposalId: id, confirmedAt: { not: null } } })) > 0) {
+        const hint = proposal.status === 'CANCELLED' ? 'งานที่ยกเลิกแล้วจะเก็บประวัติการผลิตไว้' : 'เปลี่ยนสถานะเป็น “ยกเลิก” แทน'
+        throw conflict(`มีสินค้าที่ยืนยันผลิตแล้ว ลบไม่ได้ — ${hint}`, 'IN_USE')
+      }
       const taskCount = await tx.task.count({ where: { proposalId: id } })
-      // Members, products, tasks (+ assignees) and comments cascade in the database.
+      // Members, products, tasks (+ assignees), comments, presentation and production rows cascade in the database.
       await tx.proposal.delete({ where: { id } })
       await tx.notification.deleteMany({ where: { link: { startsWith: `/proposals/${id}` } } })
       await this.activity.log(tx, user, 'proposal.delete', 'PROPOSAL', id, null, `ลบการเสนอสินค้า ${proposal.code} (${taskCount} งาน)`)

@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, HistoryIcon, LayoutDashboardIcon, ListTreeIcon, RotateCwIcon, SearchXIcon, TriangleAlertIcon } from 'lucide-react'
+import { ArrowLeftIcon, FactoryIcon, HistoryIcon, LayoutDashboardIcon, ListTreeIcon, PresentationIcon, RotateCwIcon, SearchXIcon, TriangleAlertIcon } from 'lucide-react'
 import { Link, useParams, useSearchParams } from 'react-router'
 import { ApiError, type ProposalDetail } from '@/api'
 import { errorMessage, useProposal } from '@/api/hooks'
@@ -6,14 +6,20 @@ import { EmptyState, PageHeader } from '@/components/common/misc'
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { PresentationTab, PresentationTabCount } from '@/features/presentation/presentation-tab'
+import { PresentationReadyBanner } from '@/features/presentation/ready-banner'
+import { ProductionTabCount } from '@/features/production/header-line'
+import { ProductionTab } from '@/features/production/production-tab'
 import { ProposalDetailSkeleton } from '@/features/proposal-detail/detail-skeleton'
 import { HistoryTab } from '@/features/proposal-detail/history-tab'
 import { OverviewTab } from '@/features/proposal-detail/overview-tab'
 import { ProposalHeader } from '@/features/proposal-detail/proposal-header'
 import { TaskTree } from '@/features/task-tree/task-tree'
 
-const TABS = ['tasks', 'overview', 'history'] as const
+const TABS = ['tasks', 'present', 'production', 'overview', 'history'] as const
 type TabKey = (typeof TABS)[number]
+/** One-shot tab links (store sheet, create dialog, home deep links incl. ?do=confirm); dropped when switching tabs. */
+const LINK_PARAMS = ['store', 'create', 'do', 'tracks', 'stage'] as const
 
 function ProposalsCrumb({ code }: { code?: string }) {
   return (
@@ -84,14 +90,15 @@ export default function ProposalDetailPage() {
 function ProposalView({ proposal }: { proposal: ProposalDetail }) {
   const [params, setParams] = useSearchParams()
   const rawTab = params.get('tab')
-  // ?task=<id> always shows the task list — TaskTree opens the drawer from the URL.
-  const tab: TabKey = params.get('task') ? 'tasks' : (TABS.find((t) => t === rawTab) ?? 'tasks')
+  // ?task=<id> always shows the task list — TaskTree opens the drawer from the URL; ?store=<id> likewise forces the presentation tab.
+  const tab: TabKey = params.get('task') ? 'tasks' : params.get('store') ? 'present' : (TABS.find((t) => t === rawTab) ?? 'tasks')
 
   const setTab = (value: string) => {
     const next = TABS.find((t) => t === value) ?? 'tasks'
     setParams(
       (prev) => {
         const p = new URLSearchParams(prev)
+        for (const key of LINK_PARAMS) p.delete(key)
         if (next === 'tasks') p.delete('tab')
         else {
           p.set('tab', next)
@@ -107,7 +114,20 @@ function ProposalView({ proposal }: { proposal: ProposalDetail }) {
     setParams((prev) => {
       const p = new URLSearchParams(prev)
       p.delete('tab')
+      for (const key of LINK_PARAMS) p.delete(key)
       p.set('task', taskId)
+      return p
+    })
+  }
+
+  // PresentationTab opens the create dialog from ?create=1 (and strips it right away).
+  const openPresentationCreate = () => {
+    setParams((prev) => {
+      const p = new URLSearchParams(prev)
+      p.delete('task')
+      p.delete('store')
+      p.set('tab', 'present')
+      p.set('create', '1')
       return p
     })
   }
@@ -116,6 +136,7 @@ function ProposalView({ proposal }: { proposal: ProposalDetail }) {
     <div className="flex min-w-0 flex-col gap-5">
       <ProposalsCrumb code={proposal.code} />
       <ProposalHeader proposal={proposal} />
+      {tab !== 'present' && <PresentationReadyBanner proposal={proposal} onCreate={openPresentationCreate} />}
 
       <Tabs value={tab} onValueChange={setTab} className="min-w-0 gap-4">
         <div className="scrollbar-thin -mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
@@ -123,6 +144,16 @@ function ProposalView({ proposal }: { proposal: ProposalDetail }) {
             <TabsTrigger value="tasks" className="px-3">
               <ListTreeIcon /> รายการงาน
               <span className="tabular rounded-full bg-foreground/10 px-1.5 text-[11px] leading-4">{proposal.progress.total}</span>
+            </TabsTrigger>
+            <TabsTrigger value="present" className="px-3">
+              <PresentationIcon />
+              <span className="sm:hidden">นำเสนอ</span>
+              <span className="hidden sm:inline">นำเสนอ Buyer</span>
+              <PresentationTabCount proposal={proposal} />
+            </TabsTrigger>
+            <TabsTrigger value="production" className="px-3">
+              <FactoryIcon /> รอผลิต
+              <ProductionTabCount proposal={proposal} />
             </TabsTrigger>
             <TabsTrigger value="overview" className="px-3">
               <LayoutDashboardIcon /> ภาพรวม
@@ -134,6 +165,12 @@ function ProposalView({ proposal }: { proposal: ProposalDetail }) {
         </div>
         <TabsContent value="tasks" className="min-w-0">
           <TaskTree proposal={proposal} />
+        </TabsContent>
+        <TabsContent value="present" className="min-w-0">
+          <PresentationTab proposal={proposal} onOpenTask={openTask} onGoToTasks={() => setTab('tasks')} />
+        </TabsContent>
+        <TabsContent value="production" className="min-w-0">
+          <ProductionTab proposal={proposal} onGoToPresentation={() => setTab('present')} />
         </TabsContent>
         <TabsContent value="overview" className="min-w-0">
           <OverviewTab proposal={proposal} onOpenTask={openTask} onGoToTasks={() => setTab('tasks')} />

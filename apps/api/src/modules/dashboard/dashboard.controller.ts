@@ -1,6 +1,6 @@
 import { Controller, Get } from '@nestjs/common'
 import type { User } from '@flowtrade/shared'
-import type { DashboardSummary, HomeSummary } from '@flowtrade/shared/api-types'
+import type { DashboardSummary, HomeDashboard, NavBadges } from '@flowtrade/shared/api-types'
 import { CurrentUser, RequirePermission } from '../../auth/decorators.js'
 import { DashboardService } from './dashboard.service.js'
 
@@ -8,15 +8,21 @@ import { DashboardService } from './dashboard.service.js'
 export class DashboardController {
   constructor(private readonly dashboard: DashboardService) {}
 
-  /** Signed in: the caller's own tasks / proposals. */
+  /** Signed in: the caller's own agenda / projects / results (+ the team strip with dashboard.monitor). */
   @Get('home')
-  home(@CurrentUser() user: User): Promise<HomeSummary> {
+  home(@CurrentUser() user: User): Promise<HomeDashboard> {
     return this.dashboard.home(user)
+  }
+
+  /** Signed in: sidebar counts (one statement). */
+  @Get('badge')
+  badge(@CurrentUser() user: User): Promise<NavBadges> {
+    return this.dashboard.badge(user)
   }
 
   @RequirePermission('dashboard.monitor')
   @Get('summary')
-  summary(): Promise<DashboardSummary> {
-    return this.dashboard.summary()
+  summary(@CurrentUser() user: User): Promise<DashboardSummary> {
+    return this.dashboard.summary(user)
   }
 }

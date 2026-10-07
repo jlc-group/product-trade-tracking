@@ -50,6 +50,8 @@ export function MonitorSkeleton() {
       <div className="grid gap-4 xl:grid-cols-12">
         <CardShell className="xl:col-span-7" rows={5} variant="list" />
         <CardShell className="xl:col-span-5" rows={5} variant="list" />
+        <CardShell className="xl:col-span-7" rows={4} variant="list" />
+        <CardShell className="xl:col-span-5" rows={4} variant="bars" />
         <CardShell className="xl:col-span-6" rows={6} variant="bars" />
         <CardShell className="xl:col-span-6" rows={6} variant="bars" />
       </div>

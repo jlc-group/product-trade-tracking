@@ -64,6 +64,60 @@ enum NotificationType {
   COMMENT
 }
 
+/// Where a store's buyer presentation stands (cached on presentation_tracks; the events decide).
+enum PresentationStage {
+  AWAITING
+  IN_REVIEW
+  NEEDS_INFO
+  PASSED
+  REJECTED
+  WITHDRAWN
+}
+
+enum PresentationEventKind {
+  CREATED
+  SCHEDULED
+  PRESENTED
+  NEEDS_INFO
+  INFO_SENT
+  PASSED
+  REJECTED
+  WITHDRAWN
+  REPITCH
+  REVERTED
+  EDITED
+}
+
+enum RejectReason {
+  PRICE
+  DUPLICATE
+  CATEGORY_FIT
+  SHELF_SPACE
+  DOCUMENTS
+  OTHER
+}
+
+/// Where one SKU of a proposal stands in production ("รอผลิต"). PENDING = a saved draft quantity, not confirmed yet.
+enum ProductionStatus {
+  PENDING
+  IN_PRODUCTION
+  PRODUCED
+  DELIVERED
+  CANCELLED
+}
+
+enum ProductionEventKind {
+  QUANTITY
+  PLAN
+  CONFIRM
+  ADVANCE
+  BACK
+  DATES
+  CANCEL
+  RESTORE
+  KEEP
+}
+
 model User {
   id                 String    @id @default(uuid()) @db.Uuid
   /// Optional, stored lower-case. A user needs an email or a username (CHECK in migration).
@@ -86,16 +140,25 @@ model User {
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  departmentRef  Department?      @relation(fields: [department], references: [name], onDelete: Restrict, onUpdate: Cascade)
-  sessions       Session[]
-  ownedProposals Proposal[]       @relation("ProposalOwner")
-  memberships    ProposalMember[]
-  assignments    TaskAssignee[]
-  createdTasks   Task[]           @relation("TaskCreatedBy")
-  completedTasks Task[]           @relation("TaskCompletedBy")
-  comments       Comment[]
-  activity       ActivityLog[]
-  notifications  Notification[]
+  departmentRef        Department?           @relation(fields: [department], references: [name], onDelete: Restrict, onUpdate: Cascade)
+  sessions             Session[]
+  ownedProposals       Proposal[]            @relation("ProposalOwner")
+  memberships          ProposalMember[]
+  assignments          TaskAssignee[]
+  createdTasks         Task[]                @relation("TaskCreatedBy")
+  completedTasks       Task[]                @relation("TaskCompletedBy")
+  comments             Comment[]
+  activity             ActivityLog[]
+  notifications        Notification[]
+  presentationPackages PresentationPackage[]
+  presentationEvents   PresentationEvent[]
+  productionPlans      ProductionPlan[]      @relation("ProductionPlanUpdatedBy")
+  productionConfirmed  ProductionItem[]      @relation("ProductionItemConfirmedBy")
+  productionProduced   ProductionItem[]      @relation("ProductionItemProducedBy")
+  productionDelivered  ProductionItem[]      @relation("ProductionItemDeliveredBy")
+  productionCancelled  ProductionItem[]      @relation("ProductionItemCancelledBy")
+  productionKept       ProductionItem[]      @relation("ProductionItemKeptBy")
+  productionEvents     ProductionEvent[]     @relation("ProductionEventActor")
 
   @@map("users")
 }
@@ -146,8 +209,9 @@ model Store {
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  proposals ProposalStore[]
-  templates TaskTemplate[]
+  proposals          ProposalStore[]
+  templates          TaskTemplate[]
+  presentationTracks PresentationTrack[]
 
   @@index([channel, sortOrder])
   @@map("stores")
@@ -185,7 +249,8 @@ model Product {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  proposals ProposalProduct[]
+  proposals       ProposalProduct[]
+  productionItems ProductionItem[]
 
   @@map("products")
 }
@@ -208,15 +273,20 @@ model Proposal {
   updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
   completedAt DateTime?      @map("completed_at") @db.Timestamptz(3)
 
-  shelfType ShelfType         @relation(fields: [shelfTypeId], references: [id], onDelete: Restrict)
-  owner     User              @relation("ProposalOwner", fields: [ownerId], references: [id], onDelete: Restrict)
-  template  TaskTemplate?     @relation(fields: [templateId], references: [id], onDelete: SetNull)
-  stores    ProposalStore[]
-  members   ProposalMember[]
-  products  ProposalProduct[]
-  tasks     Task[]
-  comments  Comment[]
-  activity  ActivityLog[]
+  shelfType            ShelfType             @relation(fields: [shelfTypeId], references: [id], onDelete: Restrict)
+  owner                User                  @relation("ProposalOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  template             TaskTemplate?         @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  stores               ProposalStore[]
+  members              ProposalMember[]
+  products             ProposalProduct[]
+  tasks                Task[]
+  comments             Comment[]
+  activity             ActivityLog[]
+  presentationPackages PresentationPackage[]
+  presentationTracks   PresentationTrack[]
+  productionPlan       ProductionPlan?
+  productionItems      ProductionItem[]
+  productionEvents     ProductionEvent[]
 
   @@index([status, targetDate])
   @@index([ownerId])
@@ -416,4 +486,188 @@ model Notification {
 
   @@index([userId, isRead, createdAt(sort: Desc)])
   @@map("notifications")
+}
+
+/// "ชุดนำเสนอ #seq": the finished prep tasks bundled for buyer presentations at one or more stores.
+model PresentationPackage {
+  id          String   @id @default(uuid()) @db.Uuid
+  proposalId  String   @map("proposal_id") @db.Uuid
+  /// 1, 2, … per proposal; next = max(seq) + 1.
+  seq         Int
+  note        String?
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  proposal  Proposal                  @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  createdBy User                      @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  tasks     PresentationPackageTask[]
+  tracks    PresentationTrack[]
+
+  @@unique([proposalId, seq])
+  @@map("presentation_packages")
+}
+
+/// One bundled level-1 task, frozen when the package was made.
+model PresentationPackageTask {
+  id           String    @id @default(uuid()) @db.Uuid
+  packageId    String    @map("package_id") @db.Uuid
+  /// Not a foreign key: the task may be deleted later and the web flags it by this id.
+  taskId       String    @map("task_id") @db.Uuid
+  title        String
+  completedAt  DateTime? @map("completed_at") @db.Timestamptz(3)
+  /// detailFieldsProgress().filled / .total; 0 / 0 for TEXT tasks.
+  fieldsFilled Int       @default(0) @map("fields_filled")
+  fieldsTotal  Int       @default(0) @map("fields_total")
+  sortOrder    Int       @default(0) @map("sort_order")
+
+  package PresentationPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  @@unique([packageId, taskId])
+  @@map("presentation_package_tasks")
+}
+
+/// One store's presentation of a proposal (one per store, ever). The events are the truth; stage/round are a cache.
+model PresentationTrack {
+  id             String            @id @default(uuid()) @db.Uuid
+  proposalId     String            @map("proposal_id") @db.Uuid
+  packageId      String            @map("package_id") @db.Uuid
+  storeId        String            @map("store_id") @db.Uuid
+  /// Store look frozen on creation, so a store later removed from the proposal still renders.
+  storeName      String            @map("store_name")
+  storeShortName String            @map("store_short_name")
+  storeColor     String            @map("store_color")
+  /// reduceTrack(...).stage / .round after the latest write.
+  stage          PresentationStage @default(AWAITING)
+  round          Int               @default(1)
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  proposal Proposal            @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  package  PresentationPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  store    Store               @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  events   PresentationEvent[]
+
+  @@unique([proposalId, storeId])
+  @@index([packageId])
+  @@index([storeId])
+  @@map("presentation_tracks")
+}
+
+/// Append-only track history; `seq` (1, 2, … per track) is the order. Values are as recorded — EDITED / REVERTED
+/// events change the effective ones (reduceTrack).
+model PresentationEvent {
+  id            String                @id @default(uuid()) @db.Uuid
+  trackId       String                @map("track_id") @db.Uuid
+  seq           Int
+  kind          PresentationEventKind
+  actorId       String                @map("actor_id") @db.Uuid
+  recordedAt    DateTime              @default(now()) @map("recorded_at") @db.Timestamptz(3)
+  /// Business date of PRESENTED, NEEDS_INFO, INFO_SENT, PASSED, REJECTED and WITHDRAWN (null for the others).
+  date          DateTime?             @db.Date
+  /// REJECTED only.
+  rejectReason  RejectReason?         @map("reject_reason")
+  /// REVERTED / EDITED only: the event they correct (same track).
+  targetEventId String?               @map("target_event_id") @db.Uuid
+  /// The kind's other fields (StageEvent / MetaEvent minus kind, date, REJECTED.reason and targetEventId).
+  payload       Json                  @default("{}")
+
+  track       PresentationTrack   @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  actor       User                @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  target      PresentationEvent?  @relation("PresentationEventTarget", fields: [targetEventId], references: [id], onDelete: Cascade)
+  corrections PresentationEvent[] @relation("PresentationEventTarget")
+
+  @@unique([trackId, seq])
+  @@index([targetEventId])
+  @@map("presentation_events")
+}
+
+/// Production settings of one proposal; created on the first change (no row = defaults: 14 days, no note).
+model ProductionPlan {
+  proposalId  String   @id @map("proposal_id") @db.Uuid
+  /// Deadline = proposals.target_date − lead_days (0–90, CHECK in migration).
+  leadDays    Int      @default(14) @map("lead_days")
+  note        String?
+  updatedById String   @map("updated_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  proposal  Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  updatedBy User     @relation("ProductionPlanUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+
+  @@map("production_plans")
+}
+
+/// One SKU of a proposal in production; created on the first quantity save, a skip or at confirmation. Drafts and
+/// skips of SKUs removed from the proposal are deleted with that edit; confirmed rows only with the proposal.
+model ProductionItem {
+  id            String           @id @default(uuid()) @db.Uuid
+  proposalId    String           @map("proposal_id") @db.Uuid
+  productId     String           @map("product_id") @db.Uuid
+  /// Pieces, 1–1,000,000; null only while PENDING or skipped (CANCELLED, never confirmed).
+  quantity      Int?
+  status        ProductionStatus @default(PENDING)
+  /// The real press of "ยืนยันเริ่มผลิต" (who / when).
+  confirmedAt   DateTime?        @map("confirmed_at") @db.Timestamptz(3)
+  confirmedById String?          @map("confirmed_by_id") @db.Uuid
+  /// Business date (Asia/Bangkok) production started; may be earlier than confirmedAt.
+  startedOn     DateTime?        @map("started_on") @db.Date
+  producedOn    DateTime?        @map("produced_on") @db.Date
+  producedById  String?          @map("produced_by_id") @db.Uuid
+  deliveredOn   DateTime?        @map("delivered_on") @db.Date
+  deliveredById String?          @map("delivered_by_id") @db.Uuid
+  /// The deadline when it was delivered (frozen), so later lead-day / launch changes do not re-grade it.
+  dueOn         DateTime?        @map("due_on") @db.Date
+  cancelledAt   DateTime?        @map("cancelled_at") @db.Timestamptz(3)
+  cancelledById String?          @map("cancelled_by_id") @db.Uuid
+  cancelReason  String?          @map("cancel_reason")
+  /// Who / when last acknowledged a change of the passing stores ("ผลิตต่อ" / "จำนวนเดิมใช้ได้").
+  keptAt        DateTime?        @map("kept_at") @db.Timestamptz(3)
+  keptById      String?          @map("kept_by_id") @db.Uuid
+  /// Passing stores the confirmed quantity was decided for; a different current set raises a review.
+  ackStoreIds   String[]         @default([]) @map("ack_store_ids") @db.Uuid
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  proposal    Proposal          @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  product     Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
+  confirmedBy User?             @relation("ProductionItemConfirmedBy", fields: [confirmedById], references: [id], onDelete: Restrict)
+  producedBy  User?             @relation("ProductionItemProducedBy", fields: [producedById], references: [id], onDelete: Restrict)
+  deliveredBy User?             @relation("ProductionItemDeliveredBy", fields: [deliveredById], references: [id], onDelete: Restrict)
+  cancelledBy User?             @relation("ProductionItemCancelledBy", fields: [cancelledById], references: [id], onDelete: Restrict)
+  keptBy      User?             @relation("ProductionItemKeptBy", fields: [keptById], references: [id], onDelete: Restrict)
+  events      ProductionEvent[]
+
+  @@unique([proposalId, productId])
+  @@index([productId])
+  @@map("production_items")
+}
+
+/// Append-only production log of a proposal; item_id is null only for PLAN.
+model ProductionEvent {
+  id             String              @id @default(uuid()) @db.Uuid
+  proposalId     String              @map("proposal_id") @db.Uuid
+  itemId         String?             @map("item_id") @db.Uuid
+  kind           ProductionEventKind
+  actorId        String              @map("actor_id") @db.Uuid
+  recordedAt     DateTime            @default(now()) @map("recorded_at") @db.Timestamptz(3)
+  fromStatus     ProductionStatus?   @map("from_status")
+  toStatus       ProductionStatus?   @map("to_status")
+  /// Business date of the step: CONFIRM = start day, ADVANCE = produced / delivered date, BACK = the date it cleared.
+  date           DateTime?           @db.Date
+  quantityBefore Int?                @map("quantity_before")
+  quantityAfter  Int?                @map("quantity_after")
+  leadDaysBefore Int?                @map("lead_days_before")
+  leadDaysAfter  Int?                @map("lead_days_after")
+  /// CANCEL reason.
+  reason         String?
+  /// DATES: { producedOn?: [before, after], deliveredOn?: [before, after] }; PLAN: { noteChanged }; KEEP: { storeIds }; else {}.
+  detail         Json                @default("{}")
+
+  proposal Proposal        @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  item     ProductionItem? @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  actor    User            @relation("ProductionEventActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([proposalId, recordedAt(sort: Desc)])
+  @@index([itemId])
+  @@map("production_events")
 }

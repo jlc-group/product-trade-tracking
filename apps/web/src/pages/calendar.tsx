@@ -10,7 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { AgendaList, AgendaSkeleton } from '@/features/calendar/agenda'
 import { DayPanel } from '@/features/calendar/day-panel'
 import { MiniMonth } from '@/features/calendar/mini-month'
-import { bucketsInRange, monthKey, monthLabel, nearestMonthWithItems, shiftMonth, taskTone, type DayBucket } from '@/features/calendar/model'
+import { bucketsInRange, isCountedOverdue, monthKey, monthLabel, nearestMonthWithItems, shiftMonth, type DayBucket } from '@/features/calendar/model'
 import { CalendarLegend, MonthGrid, MonthGridSkeleton } from '@/features/calendar/month-grid'
 import { CalendarToolbar } from '@/features/calendar/toolbar'
 import { useCalendarData, useCalendarParams } from '@/features/calendar/use-calendar'
@@ -25,7 +25,7 @@ function countTasks(days: DayBucket[], todayDate: ISODate) {
   let overdue = 0
   for (const d of days) {
     tasks += d.tasks.length
-    overdue += d.tasks.filter((t) => taskTone(t.task, todayDate) === 'overdue').length
+    overdue += d.tasks.filter((t) => isCountedOverdue(t, todayDate)).length
   }
   return { tasks, overdue }
 }
@@ -158,7 +158,7 @@ export default function CalendarPage() {
               </div>
               {showTasks && overdueAll > 0 && (
                 <Link
-                  to="/my-tasks"
+                  to="/my-tasks?due=overdue"
                   className="inline-flex items-center gap-1.5 rounded-full bg-danger-soft px-3 py-1 text-xs font-medium text-danger outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
                 >
                   <CircleAlertIcon className="size-3.5" aria-hidden />

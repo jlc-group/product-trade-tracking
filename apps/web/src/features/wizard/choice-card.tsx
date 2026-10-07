@@ -2,9 +2,18 @@ import { CheckIcon } from 'lucide-react'
 import type { CSSProperties, ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
+const SELECTED_TONE = {
+  brand: 'border-primary bg-brand-soft/60 ring-1 ring-primary hover:border-primary hover:bg-brand-soft/60',
+  info: 'border-info bg-info-soft/60 ring-1 ring-info hover:border-info hover:bg-info-soft/60',
+  success: 'border-success bg-success-soft/60 ring-1 ring-success hover:border-success hover:bg-success-soft/60',
+  warning: 'border-warning bg-warning-soft/60 ring-1 ring-warning hover:border-warning hover:bg-warning-soft/60',
+  danger: 'border-danger bg-danger-soft/60 ring-1 ring-danger hover:border-danger hover:bg-danger-soft/60',
+}
+
 /**
  * A whole-card toggle. `mode="radio"` shows a round marker (single choice),
  * `mode="checkbox"` a square one (multi choice). One tab stop per card; Space/Enter toggles.
+ * `tone` colours the selected state (outcome cards); brand by default.
  */
 export function ChoiceCard({
   selected,
@@ -16,6 +25,7 @@ export function ChoiceCard({
   disabled,
   hideMarker,
   ariaLabel,
+  tone = 'brand',
 }: {
   selected: boolean
   onSelect: () => void
@@ -26,6 +36,7 @@ export function ChoiceCard({
   disabled?: boolean
   hideMarker?: boolean
   ariaLabel?: string
+  tone?: keyof typeof SELECTED_TONE
 }) {
   return (
     <button
@@ -40,7 +51,7 @@ export function ChoiceCard({
         'group/choice relative flex w-full min-w-0 items-start gap-3 rounded-xl border bg-card p-4 text-left transition outline-none',
         'hover:border-primary/40 hover:bg-accent/30 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50',
         'disabled:cursor-not-allowed disabled:opacity-60',
-        selected && 'border-primary bg-brand-soft/60 ring-1 ring-primary hover:border-primary hover:bg-brand-soft/60',
+        selected && SELECTED_TONE[tone],
         className,
       )}
     >

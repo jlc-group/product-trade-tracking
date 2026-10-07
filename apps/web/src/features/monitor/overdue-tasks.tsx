@@ -51,7 +51,7 @@ export function OverdueTasks({ items, className }: { items: TaskWithContext[]; c
 
   return (
     <MonitorSection
-      id="overdue-tasks"
+      id="overdue"
       className={className}
       icon={<AlarmClockIcon className={items.length > 0 ? 'text-danger' : undefined} />}
       title={
@@ -62,8 +62,8 @@ export function OverdueTasks({ items, className }: { items: TaskWithContext[]; c
       }
       description={
         items.length > 0
-          ? `จาก ${fmt(proposalCount)} โปรเจกต์ เรียงจากที่เลยกำหนดนานที่สุด — กดที่งานเพื่อเปิดในโปรเจกต์`
-          : 'งานที่ถึงกำหนดส่งแล้วแต่ยังไม่ติ๊กเสร็จ'
+          ? `จาก ${fmt(proposalCount)} โปรเจกต์ที่กำลังทำ เรียงจากที่เลยกำหนดนานที่สุด — กดที่งานเพื่อเปิดในโปรเจกต์`
+          : 'งานที่ถึงกำหนดส่งแล้วแต่ยังไม่ติ๊กเสร็จ ในโปรเจกต์ที่กำลังทำ (ไม่รวมร่าง/พักไว้)'
       }
     >
       {items.length === 0 ? (

@@ -21,6 +21,9 @@ export function taskTone(task: Pick<Task, 'isDone' | 'dueDate'>, today: ISODate)
   return isOverdue(task, today) ? 'overdue' : 'open'
 }
 
+/** The badge's overdue rule: only countable tasks (leaf, IN_PROGRESS proposal). */
+export const isCountedOverdue = (item: TaskWithContext, today: ISODate) => item.countable !== false && taskTone(item.task, today) === 'overdue'
+
 export const TASK_DOT: Record<TaskTone, string> = {
   open: 'bg-primary',
   overdue: 'bg-danger',

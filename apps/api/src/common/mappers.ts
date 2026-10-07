@@ -21,7 +21,7 @@ import { iso, isoOrNull, toDateOnly } from './dates.js'
 // ---------- include presets (use these so mappers always get what they need) ----------
 
 /** A proposal's stores in the admin-defined store order. */
-const proposalStoreOrder = [{ store: { sortOrder: 'asc' } }, { store: { name: 'asc' } }, { storeId: 'asc' }] satisfies Prisma.ProposalStoreOrderByWithRelationInput[]
+export const proposalStoreOrder = [{ store: { sortOrder: 'asc' } }, { store: { name: 'asc' } }, { storeId: 'asc' }] satisfies Prisma.ProposalStoreOrderByWithRelationInput[]
 
 export const proposalInclude = {
   stores: { select: { storeId: true }, orderBy: proposalStoreOrder },

@@ -2,7 +2,6 @@
 // shaped's toListItem / summarize / withContext.
 import { computeProgress, isOverdue, type ISODate, type Proposal, type ProposalStatus, type Store, type Task, type User } from '@flowtrade/shared'
 import type { ProposalListItem, TaskWithContext } from '@flowtrade/shared/api-types'
-import { toDateOnly } from '../../common/dates.js'
 import { proposalWithStoresInclude, toProduct, toProposal, toShelfType, toStores, toUser } from '../../common/mappers.js'
 import type { Prisma } from '../../generated/prisma/client.js'
 
@@ -19,18 +18,12 @@ export const listInclude = {
 export type ListRow = Prisma.ProposalGetPayload<{ include: typeof listInclude }>
 
 /** The task fields a proposal summary needs (progress / overdue / open / next due). */
-export const taskLiteSelect = { id: true, proposalId: true, parentId: true, isDone: true, dueDate: true } satisfies Prisma.TaskSelect
-
 export interface TaskLite {
   id: string
   proposalId: string
   parentId: string | null
   isDone: boolean
   dueDate: ISODate | null
-}
-
-export function toTaskLite(t: Prisma.TaskGetPayload<{ select: typeof taskLiteSelect }>): TaskLite {
-  return { id: t.id, proposalId: t.proposalId, parentId: t.parentId, isDone: t.isDone, dueDate: toDateOnly(t.dueDate) }
 }
 
 export function groupByProposal<T extends { proposalId: string }>(tasks: T[]): Map<string, T[]> {

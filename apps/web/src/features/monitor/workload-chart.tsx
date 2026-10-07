@@ -174,7 +174,7 @@ export function WorkloadChart({ data, className }: { data: DashboardSummary['wor
       title="ภาระงานรายคน"
       description={
         peopleWithOverdue > 0
-          ? `งานที่ยังไม่เสร็จของแต่ละคน · ${fmt(peopleWithOverdue)} คนมีงานเลยกำหนด เรียงจากมากไปน้อย`
+          ? `งานที่ยังไม่เสร็จของแต่ละคน · ${fmt(peopleWithOverdue)} คนมีงานเลยกำหนด (เฉพาะโปรเจกต์ที่กำลังทำ) เรียงจากมากไปน้อย`
           : 'งานที่ยังไม่เสร็จของแต่ละคน (นับงานระดับล่างสุดที่ได้รับมอบหมาย)'
       }
       legend={legend}

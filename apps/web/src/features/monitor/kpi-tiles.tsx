@@ -62,7 +62,6 @@ function StatTile({ tile }: { tile: Tile }) {
 export function KpiTiles({ data }: { data: DashboardSummary }) {
   const { kpis, today: t } = data
   const count = (s: string) => data.byStatus.find((b) => b.status === s)?.count ?? 0
-  const overduePct = kpis.openTasks > 0 ? Math.round((kpis.overdueTasks / kpis.openTasks) * 100) : 0
 
   const tiles: Tile[] = [
     {
@@ -91,10 +90,10 @@ export function KpiTiles({ data }: { data: DashboardSummary }) {
       key: 'overdue',
       label: 'งานเลยกำหนด',
       value: fmt(kpis.overdueTasks),
-      caption: kpis.overdueTasks > 0 ? `${fmt(overduePct)}% ของงานค้าง — กดเพื่อดูรายการ` : 'ไม่มีงานเลยกำหนด ทุกทีมตามแผน',
+      caption: kpis.overdueTasks > 0 ? 'ไม่รวมโปรเจกต์ร่าง/พักไว้ — กดเพื่อดูรายการ' : 'ไม่มีงานเลยกำหนดในโปรเจกต์ที่กำลังทำ',
       icon: <AlarmClockIcon />,
       tone: kpis.overdueTasks > 0 ? 'danger' : 'success',
-      href: kpis.overdueTasks > 0 ? '#overdue-tasks' : undefined,
+      href: kpis.overdueTasks > 0 ? '#overdue' : undefined,
     },
     {
       key: 'done',

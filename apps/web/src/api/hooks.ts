@@ -10,6 +10,7 @@ import type {
   CreateTaskInput,
   MoveTaskInput,
   MyTasksFilters,
+  NavBadges,
   ProductInput,
   ProposalDetail,
   ProposalFilters,
@@ -46,6 +47,7 @@ export const qk = {
   activity: (proposalId?: string, limit?: number) => ['activity', proposalId ?? 'all', limit ?? 100] as const,
   notifications: ['notifications'] as const,
   home: ['dashboard', 'home'] as const,
+  badge: ['dashboard', 'badge'] as const,
   dashboard: ['dashboard', 'summary'] as const,
 }
 
@@ -67,6 +69,11 @@ function invalidateWork(qc: QueryClient, proposalId?: string) {
   qc.invalidateQueries({ queryKey: ['activity'] })
   qc.invalidateQueries({ queryKey: qk.notifications })
   if (proposalId) qc.invalidateQueries({ queryKey: qk.tasks(proposalId) })
+}
+
+/** SKUs, stores, launch date and status move the "รอผลิต" view (not task ticks, so not in invalidateWork). */
+function invalidateProduction(qc: QueryClient, proposalId: string) {
+  qc.invalidateQueries({ queryKey: ['production', proposalId] })
 }
 
 // ---------- auth & users ----------
@@ -216,7 +223,10 @@ export function useUpdateProposal() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: UpdateProposalInput }) => api.proposals.update(id, patch),
-    onSuccess: (_d, v) => invalidateWork(qc, v.id),
+    onSuccess: (_d, v) => {
+      invalidateWork(qc, v.id)
+      invalidateProduction(qc, v.id)
+    },
     onError,
   })
 }
@@ -224,7 +234,10 @@ export function useChangeProposalStatus() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ id, status }: { id: string; status: ProposalStatus }) => api.proposals.changeStatus(id, status),
-    onSuccess: (_d, v) => invalidateWork(qc, v.id),
+    onSuccess: (_d, v) => {
+      invalidateWork(qc, v.id)
+      invalidateProduction(qc, v.id)
+    },
     onError,
   })
 }
@@ -232,7 +245,10 @@ export function useChangeTargetDate() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ id, targetDate, shiftTasks }: { id: string; targetDate: string; shiftTasks: boolean }) => api.proposals.changeTargetDate(id, targetDate, shiftTasks),
-    onSuccess: (_d, v) => invalidateWork(qc, v.id),
+    onSuccess: (_d, v) => {
+      invalidateWork(qc, v.id)
+      invalidateProduction(qc, v.id)
+    },
     onError,
   })
 }
@@ -372,5 +388,21 @@ export function useMarkNotificationRead() {
   return useMutation({ mutationFn: (id: string | 'all') => api.notifications.markRead(id), onSuccess: () => qc.invalidateQueries({ queryKey: qk.notifications }) })
 }
 
-export const useHome = () => useQuery({ queryKey: qk.home, queryFn: api.dashboard.home })
+/** Home dashboard; also primes the sidebar badge (its overdue task rows are the badge's count by definition). */
+export function useHome() {
+  const qc = useQueryClient()
+  return useQuery({
+    queryKey: qk.home,
+    queryFn: async () => {
+      const home = await api.dashboard.home()
+      const overdueTasks = home.agenda.items.filter((i) => i.kind === 'task' && i.bucket === 'overdue').length
+      qc.setQueryData<NavBadges>(qk.badge, { overdueTasks })
+      return home
+    },
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+  })
+}
+/** Sidebar badge on "งานของฉัน" — the only dashboard query mounted on every page. */
+export const useBadge = () => useQuery({ queryKey: qk.badge, queryFn: api.dashboard.badge, staleTime: 60_000, refetchOnWindowFocus: true })
 export const useDashboard = () => useQuery({ queryKey: qk.dashboard, queryFn: api.dashboard.summary })

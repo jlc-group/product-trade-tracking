@@ -69,7 +69,7 @@ function GroupSection({ group, toggler, groupBy }: { group: TaskGroup; toggler: 
         ) : (
           <>
             <span className={cn('size-2 shrink-0 rounded-full', TONE_DOT[group.tone])} aria-hidden />
-            <h2 id={headingId} className={cn('text-sm font-semibold', group.tone === 'danger' && 'text-danger')}>
+            <h2 id={headingId} className={cn('shrink-0 text-sm font-semibold', group.tone === 'danger' && 'text-danger')}>
               {group.title}
             </h2>
           </>
@@ -161,7 +161,8 @@ export default function MyTasksPage() {
     return groupBy === 'project' ? groupByProject(filtered, serverDone, t) : groupByDue(filtered, serverDone, t)
   }, [filtered, groupBy, t])
 
-  const overdueCount = filtered.filter((i) => !toggler.isDone(i) && !!i.task.dueDate && i.task.dueDate < t).length
+  // Same rule as the sidebar badge: only countable tasks (leaf, IN_PROGRESS proposal).
+  const overdueCount = filtered.filter((i) => i.countable !== false && !toggler.isDone(i) && !!i.task.dueDate && i.task.dueDate < t).length
   const hasFilters = status !== DEFAULTS.status || effectiveDue !== DEFAULTS.due
   const clearAll = () => {
     setQuery('')

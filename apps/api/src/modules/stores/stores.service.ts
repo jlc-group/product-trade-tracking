@@ -3,11 +3,15 @@ import type { Channel, Store, User } from '@flowtrade/shared'
 import { ActivityService } from '../../common/activity.service.js'
 import { conflict, invalid, notFound } from '../../common/errors.js'
 import { toStore } from '../../common/mappers.js'
+import { config } from '../../config.js'
 import { Prisma } from '../../generated/prisma/client.js'
 import { PrismaService, type Db } from '../../prisma/prisma.service.js'
 import type { CreateStoreBody, UpdateStoreBody } from './stores.schemas.js'
 
 const DUPLICATE_NAME = 'มีชื่อนี้อยู่แล้ว'
+
+/** Schema-qualified table name for raw SQL (schema from config, never from input). */
+const table = (name: string) => Prisma.raw(`"${config.dbSchema.replaceAll('"', '""')}"."${name}"`)
 
 const isPrismaError = (e: unknown, code: string) => e instanceof Prisma.PrismaClientKnownRequestError && e.code === code
 
@@ -17,6 +21,10 @@ function mapDuplicate(e: unknown): unknown {
 }
 
 const inUse = (used: number, name: string) => conflict(`ลบไม่ได้ เพราะมีการเสนอสินค้า ${used} รายการใช้ ${name} อยู่ — ปิดการใช้งานแทนได้`, 'IN_USE')
+
+/** Proposals that list the store, or keep a presentation track of it after it left the proposal (FK RESTRICT on both). */
+const usedBy = (db: Db, storeId: string) =>
+  db.proposal.count({ where: { OR: [{ stores: { some: { storeId } } }, { presentationTracks: { some: { storeId } } }] } })
 
 @Injectable()
 export class StoresService {
@@ -34,10 +42,19 @@ export class StoresService {
     return rows.map(toStore)
   }
 
-  /** { [storeId]: number of proposals } — only stores that are referenced appear. */
+  /**
+   * { [storeId]: number of proposals } — only stores that are referenced appear. Counts what usedBy() counts (the
+   * delete guard): proposals that list the store or keep a presentation track of it, each proposal once.
+   */
   async usage(): Promise<Record<string, number>> {
-    const groups = await this.prisma.proposalStore.groupBy({ by: ['storeId'], _count: { _all: true } })
-    return Object.fromEntries(groups.map((g) => [g.storeId, g._count._all]))
+    // Counted in the database: one row per store, however many proposals there are.
+    const rows = await this.prisma.$queryRaw<{ store_id: string; n: number }[]>`
+      SELECT u.store_id::text AS store_id, COUNT(DISTINCT u.proposal_id)::int AS n
+      FROM (SELECT store_id, proposal_id FROM ${table('proposal_stores')}
+            UNION ALL
+            SELECT store_id, proposal_id FROM ${table('presentation_tracks')}) u
+      GROUP BY u.store_id`
+    return Object.fromEntries(rows.map((r) => [r.store_id, r.n]))
   }
 
   async create(actor: User, input: CreateStoreBody): Promise<Store> {
@@ -94,7 +111,7 @@ export class StoresService {
     }
   }
 
-  /** 409 IN_USE while any proposal references the store. Templates scoped to it fall back to "every store" (FK SET NULL). */
+  /** 409 IN_USE while any proposal references the store (or its presentation track). Templates scoped to it fall back to "every store" (FK SET NULL). */
   async remove(actor: User, id: string): Promise<true> {
     let name = ''
     try {
@@ -102,14 +119,14 @@ export class StoresService {
         const store = await tx.store.findUnique({ where: { id } })
         if (!store) throw notFound('ห้าง')
         name = store.name
-        const used = await tx.proposalStore.count({ where: { storeId: id } })
+        const used = await usedBy(tx, id)
         if (used > 0) throw inUse(used, store.name)
         await tx.store.delete({ where: { id } })
         await this.activity.log(tx, actor, 'store.delete', 'STORE', id, null, `ลบ ${store.name}`)
       })
     } catch (e) {
       // A proposal was created between the count and the delete (FK RESTRICT).
-      if (isPrismaError(e, 'P2003')) throw inUse(await this.prisma.proposalStore.count({ where: { storeId: id } }), name)
+      if (isPrismaError(e, 'P2003')) throw inUse(await usedBy(this.prisma, id), name)
       throw e
     }
     return true

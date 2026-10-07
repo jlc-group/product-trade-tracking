@@ -1,13 +1,10 @@
 import type { Channel, Task } from '@flowtrade/shared'
 
+export { storeWord } from '@flowtrade/shared'
+
 /** Short word for the launch date: "วันวางขาย" (offline) / "วันเปิดขาย" (online). */
 export function launchWord(channel: Channel) {
   return channel === 'ONLINE' ? 'วันเปิดขาย' : 'วันวางขาย'
-}
-
-/** Short word for the retailer: "ห้าง" (offline) / "แพลตฟอร์ม" (online). */
-export function storeWord(channel: Channel) {
-  return channel === 'ONLINE' ? 'แพลตฟอร์ม' : 'ห้าง'
 }
 
 /** Tasks without children — the actionable items that progress counts. */

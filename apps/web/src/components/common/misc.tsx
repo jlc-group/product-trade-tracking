@@ -90,11 +90,12 @@ export function DueChip({ startDate, dueDate, isDone, className, compact }: { st
   )
 }
 
-/** Countdown to the target on-shelf date. */
-export function LaunchCountdown({ targetDate, className }: { targetDate: ISODate; className?: string }) {
+/** Countdown to the target on-shelf date. `open`: results still missing, so a past date reads "เลยวันวางขาย n วัน" (danger). */
+export function LaunchCountdown({ targetDate, open, className }: { targetDate: ISODate; open?: boolean; className?: string }) {
   const n = daysUntil(targetDate)
-  const label = n === 0 ? 'วางขายวันนี้' : n > 0 ? `อีก ${n} วัน` : `วางขายแล้ว ${-n} วัน`
-  return <span className={cn('tabular text-xs font-medium', n < 0 ? 'text-muted-foreground' : n <= 14 ? 'text-warning-foreground' : 'text-foreground', className)}>{label}</span>
+  const label = n === 0 ? 'วางขายวันนี้' : n > 0 ? `อีก ${n} วัน` : open ? `เลยวันวางขาย ${-n} วัน` : `วางขายแล้ว ${-n} วัน`
+  const tone = n < 0 ? (open ? 'text-danger' : 'text-muted-foreground') : n <= 14 ? 'text-warning-foreground' : 'text-foreground'
+  return <span className={cn('tabular text-xs font-medium', tone, className)}>{label}</span>
 }
 
 interface ConfirmOptions {

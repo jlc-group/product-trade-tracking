@@ -19,23 +19,27 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { usePresentationSummary } from '@/features/presentation/hooks'
+import { useProductionSummary } from '@/features/production/hooks'
 import { cn } from '@/lib/utils'
 import { DuplicateDialog } from './duplicate-dialog'
 import { EditProposalDialog } from './edit-proposal-dialog'
 import { RescheduleDialog } from './reschedule-dialog'
 import { launchWord } from './utils'
 
-const STATUS_HINT: Record<ProposalStatus, string> = {
+const STATUS_HINT: Record<Exclude<ProposalStatus, 'COMPLETED'>, string> = {
   DRAFT: 'ยังวางแผนอยู่ ยังไม่เริ่มงาน',
   IN_PROGRESS: 'ทีมกำลังทำงานตามรายการ',
   ON_HOLD: 'หยุดไว้ชั่วคราว งานยังอยู่ครบ',
-  COMPLETED: 'วางขายแล้ว ทุกงานเสร็จ',
   CANCELLED: 'ไม่ไปต่อ เก็บไว้เป็นประวัติ',
 }
 
+/** word = storeWord(channel): "ห้าง" / "แพลตฟอร์ม". */
+const statusHint = (status: ProposalStatus, word: string) => (status === 'COMPLETED' ? `ได้ผลพิจารณาจาก Buyer ครบทุก${word}แล้ว` : STATUS_HINT[status])
+
 type DialogKind = 'reschedule' | 'edit' | 'duplicate'
 
-function StatusRadioItems({ current, openLeft, onPick }: { current: ProposalStatus; openLeft: number; onPick: (status: ProposalStatus) => void }) {
+function StatusRadioItems({ current, openLeft, word, onPick }: { current: ProposalStatus; openLeft: number; word: string; onPick: (status: ProposalStatus) => void }) {
   return (
     <DropdownMenuRadioGroup
       value={current}
@@ -50,7 +54,7 @@ function StatusRadioItems({ current, openLeft, onPick }: { current: ProposalStat
           <span className="grid gap-0.5">
             <span>{STATUS_LABEL[s]}</span>
             <span className={cn('text-xs', s === 'COMPLETED' && openLeft > 0 ? 'text-warning-foreground' : 'text-muted-foreground')}>
-              {s === 'COMPLETED' && openLeft > 0 ? `ยังเหลืออีก ${openLeft} งานที่ยังไม่เสร็จ` : STATUS_HINT[s]}
+              {s === 'COMPLETED' && openLeft > 0 ? `ยังเหลืออีก ${openLeft} งานที่ยังไม่เสร็จ` : statusHint(s, word)}
             </span>
           </span>
         </DropdownMenuRadioItem>
@@ -67,6 +71,8 @@ export function ProposalActions({ proposal }: { proposal: ProposalDetail }) {
   const [confirm, confirmDialog] = useConfirm()
   const changeStatus = useChangeProposalStatus()
   const remove = useDeleteProposal()
+  const pres = usePresentationSummary(proposal)
+  const prod = useProductionSummary(proposal.id).summary
 
   const canEdit = canEditProposal(user, proposal)
   const canDelete = canDeleteProposal(user, proposal)
@@ -90,6 +96,19 @@ export function ProposalActions({ proposal }: { proposal: ProposalDetail }) {
       })
       return
     }
+    // Soft check only (skipped until the buyer results have loaded).
+    if (next === 'COMPLETED' && !pres.isLoading && !pres.allFinal) {
+      const sw = pres.storeWord
+      const ok = await confirm({
+        title: `ยังได้ผลพิจารณาไม่ครบทุก${sw}`,
+        description:
+          pres.tracked === 0
+            ? 'ยังไม่ได้นำเสนอ Buyer เลย — ตั้งเป็น “เสร็จสิ้น” เลยไหม?'
+            : `ยังมี ${pres.storesTotal - pres.finalCount} ${sw}ที่ยังไม่ได้ผลจาก Buyer — ตั้งโปรเจกต์เป็น “เสร็จสิ้น” เลยไหม?`,
+        confirmLabel: 'ตั้งเป็นเสร็จสิ้น',
+      })
+      if (!ok) return
+    }
     if (next === 'ON_HOLD') {
       const ok = await confirm({
         title: `พัก ${proposal.code} ไว้ก่อน?`,
@@ -99,9 +118,12 @@ export function ProposalActions({ proposal }: { proposal: ProposalDetail }) {
       if (!ok) return
     }
     if (next === 'CANCELLED') {
+      const making = prod ? prod.inProduction + prod.produced : 0
       const ok = await confirm({
         title: `ยกเลิกการเสนอ ${proposal.code}?`,
-        description: `โปรเจกต์นี้จะไม่ถูกนับเป็นงานที่กำลังดำเนินการ และงานที่ค้างอยู่จะหายไปจาก "งานของฉัน" ของทุกคน ข้อมูลยังเก็บไว้ครบ และเปลี่ยนสถานะกลับได้ภายหลัง`,
+        description: `โปรเจกต์นี้จะไม่ถูกนับเป็นงานที่กำลังดำเนินการ และงานที่ค้างอยู่จะหายไปจาก "งานของฉัน" ของทุกคน ข้อมูลยังเก็บไว้ครบ และเปลี่ยนสถานะกลับได้ภายหลัง${
+          making > 0 ? ` · มี ${making} SKU ที่ยืนยันผลิตแล้วและยังไม่ส่ง — หลังยกเลิกจะบันทึกการผลิตต่อไม่ได้จนกว่าจะเปลี่ยนสถานะกลับ` : ''
+        }`,
         confirmLabel: 'ยกเลิกการเสนอนี้',
         destructive: true,
       })
@@ -118,7 +140,7 @@ export function ProposalActions({ proposal }: { proposal: ProposalDetail }) {
   async function onDelete() {
     const ok = await confirm({
       title: `ลบ ${proposal.code} ถาวร?`,
-      description: 'งานทุกระดับ ความคิดเห็น และการแจ้งเตือนของโปรเจกต์นี้จะถูกลบไปด้วย และกู้คืนไม่ได้',
+      description: 'งานทุกระดับ ความคิดเห็น ข้อมูลการนำเสนอ ข้อมูลการผลิต และการแจ้งเตือนของโปรเจกต์นี้จะถูกลบไปด้วย และกู้คืนไม่ได้',
       confirmLabel: 'ลบถาวร',
       destructive: true,
     })
@@ -167,7 +189,7 @@ export function ProposalActions({ proposal }: { proposal: ProposalDetail }) {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-64">
               <DropdownMenuLabel>สถานะของการเสนอ</DropdownMenuLabel>
-              <StatusRadioItems current={proposal.status} openLeft={openLeft} onPick={onStatus} />
+              <StatusRadioItems current={proposal.status} openLeft={openLeft} word={pres.storeWord} onPick={onStatus} />
             </DropdownMenuContent>
           </DropdownMenu>
         )}
@@ -216,7 +238,7 @@ export function ProposalActions({ proposal }: { proposal: ProposalDetail }) {
             {canEdit && (
               <>
                 <DropdownMenuLabel>เปลี่ยนสถานะ</DropdownMenuLabel>
-                <StatusRadioItems current={proposal.status} openLeft={openLeft} onPick={onStatus} />
+                <StatusRadioItems current={proposal.status} openLeft={openLeft} word={pres.storeWord} onPick={onStatus} />
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => setDialog('reschedule')}>
                   <CalendarClockIcon /> เลื่อน{word}

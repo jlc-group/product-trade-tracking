@@ -4,7 +4,7 @@ import { ActivityService } from '../../common/activity.service.js'
 import { conflict, invalid, notFound } from '../../common/errors.js'
 import { toProduct } from '../../common/mappers.js'
 import { Prisma } from '../../generated/prisma/client.js'
-import { PrismaService } from '../../prisma/prisma.service.js'
+import { PrismaService, type Db } from '../../prisma/prisma.service.js'
 import type { CreateProductBody, UpdateProductBody } from './products.schemas.js'
 
 const DUPLICATE_SKU = 'รหัสสินค้า (SKU) นี้มีอยู่แล้ว'
@@ -17,6 +17,14 @@ function mapDuplicate(e: unknown): unknown {
 }
 
 const inUse = (used: number) => conflict(`ลบไม่ได้ เพราะสินค้านี้อยู่ในการเสนอ ${used} รายการ — ปิดการใช้งานแทนได้`, 'IN_USE')
+
+/** Why the product can't be deleted: proposals listing it, else proposals keeping production data of it (one row per proposal). */
+async function usage(db: Db, id: string) {
+  const used = await db.proposalProduct.count({ where: { productId: id } })
+  if (used > 0) return inUse(used)
+  const produced = await db.productionItem.count({ where: { productId: id } })
+  return produced > 0 ? conflict(`ลบไม่ได้ เพราะสินค้านี้มีข้อมูลการผลิตใน ${produced} โปรเจกต์ — ปิดการใช้งานแทนได้`, 'IN_USE') : null
+}
 
 /** trimmed, lower-cased substring over any field. */
 function matchesQuery(q: string, ...fields: (string | null | undefined)[]) {
@@ -98,20 +106,20 @@ export class ProductsService {
     }
   }
 
-  /** 409 IN_USE while any proposal lists the product. */
+  /** 409 IN_USE while any proposal lists the product or keeps production data of it. */
   async remove(actor: User, id: string): Promise<true> {
     try {
       await this.prisma.$transaction(async (tx) => {
         const product = await tx.product.findUnique({ where: { id } })
         if (!product) throw notFound('สินค้า')
-        const used = await tx.proposalProduct.count({ where: { productId: id } })
-        if (used > 0) throw inUse(used)
+        const blocked = await usage(tx, id)
+        if (blocked) throw blocked
         await tx.product.delete({ where: { id } })
         await this.activity.log(tx, actor, 'product.delete', 'PRODUCT', id, null, `ลบสินค้า ${product.sku}`)
       })
     } catch (e) {
-      // A proposal picked the product between the count and the delete (FK RESTRICT).
-      if (isPrismaError(e, 'P2003')) throw inUse(await this.prisma.proposalProduct.count({ where: { productId: id } }))
+      // A proposal picked the product (or production saved it) between the count and the delete (FK RESTRICT).
+      if (isPrismaError(e, 'P2003')) throw (await usage(this.prisma, id)) ?? inUse(0)
       throw e
     }
     return true

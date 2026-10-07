@@ -1,4 +1,4 @@
-import type { Channel, DescriptionFormat, ProposalStatus, Role, TaskLevel, TaskPriority } from './types.js'
+import type { Channel, DescriptionFormat, ISODate, ProposalStatus, Role, TaskLevel, TaskPriority } from './types.js'
 
 export const ROLE_LABEL: Record<Role, string> = {
   ADMIN: 'ผู้ดูแลระบบ (Admin)',
@@ -66,6 +66,11 @@ export const DESCRIPTION_FORMAT_LABEL: Record<DescriptionFormat, string> = {
   FIELDS: 'ตาราง',
 }
 
+/** Short word for the retailer: "ห้าง" (offline) / "แพลตฟอร์ม" (online). */
+export function storeWord(channel: Channel) {
+  return channel === 'ONLINE' ? 'แพลตฟอร์ม' : 'ห้าง'
+}
+
 /** The identifier a person types to sign in: username first, then email. */
 export function signInName(user: { username: string | null; email: string | null }): string {
   return user.username ?? user.email ?? ''
@@ -74,6 +79,20 @@ export function signInName(user: { username: string | null; email: string | null
 /** Store names on one line: up to `max` names, then "+N" for the rest ("Watsons, Lotus's, Big C +4"). */
 export function storeNamesLabel(names: readonly string[], max = 3): string {
   return names.length <= max ? names.join(', ') : `${names.slice(0, max).join(', ')} +${names.length - max}`
+}
+
+const THAI_MONTHS_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
+
+/**
+ * "15 ต.ค. 69" (Buddhist era), the web's default formatDate, for text built where the viewer's BE/CE
+ * preference is unknown (API messages). Anything that is not YYYY-MM-DD comes back as is; empty → "—".
+ */
+export function formatThaiDate(date: ISODate | null | undefined): string {
+  if (!date) return '—'
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
+  const month = m ? THAI_MONTHS_SHORT[Number(m[2]) - 1] : undefined
+  if (!m || !month) return date
+  return `${Number(m[3])} ${month} ${String((Number(m[1]) + 543) % 100).padStart(2, '0')}`
 }
 
 /** Longest title the proposal title inputs accept (the API allows 200). */

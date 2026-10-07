@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
-import type { TaskWithContext } from '@/api'
+import type { TaskRowItem } from '@/api'
 import { useToggleAnyTask } from '@/api/hooks'
 
 interface Override {
@@ -34,7 +34,7 @@ export function useTaskToggler(dataUpdatedAt: number) {
       return next
     })
 
-  const run = async (item: TaskWithContext, isDone: boolean, opts: { undoable?: boolean } = {}) => {
+  const run = async (item: TaskRowItem, isDone: boolean, opts: { undoable?: boolean } = {}) => {
     const { undoable = true } = opts
     const id = item.task.id
     setOverrides((prev) => ({ ...prev, [id]: { isDone, pending: true, settledAt: 0 } }))
@@ -55,9 +55,9 @@ export function useTaskToggler(dataUpdatedAt: number) {
 
   return {
     /** Effective done-state for a row (optimistic while pending). */
-    isDone: (item: TaskWithContext) => active(item.task.id)?.isDone ?? item.task.isDone,
-    isPending: (item: TaskWithContext) => !!overrides[item.task.id]?.pending,
-    toggle: (item: TaskWithContext, isDone: boolean) => void run(item, isDone),
+    isDone: (item: TaskRowItem) => active(item.task.id)?.isDone ?? item.task.isDone,
+    isPending: (item: TaskRowItem) => !!overrides[item.task.id]?.pending,
+    toggle: (item: TaskRowItem, isDone: boolean) => void run(item, isDone),
   }
 }
 

@@ -8,6 +8,7 @@ import type {
   ISODate,
   ISODateTime,
   Product,
+  Progress,
   Proposal,
   ProposalStatus,
   ProposalSummary,
@@ -20,6 +21,8 @@ import type {
   TaskTemplateItem,
   User,
 } from './types.js'
+import type { PresentationStage, StoreSnapshot, TrackView } from './presentation.js'
+import type { ProductionSummary } from './production.js'
 
 // ---------- read models ----------
 
@@ -40,6 +43,17 @@ export interface TaskWithContext {
   task: Task
   proposal: Proposal
   stores: Store[]
+  /** Titles of ancestors, top-down. */
+  path: string[]
+  /** A leaf task of an IN_PROGRESS proposal: the only kind the overdue counts include (GET /tasks/mine). */
+  countable?: boolean
+}
+
+/** What WorkTaskRow / useTaskToggler read; TaskWithContext also satisfies it. */
+export interface TaskRowItem {
+  task: Pick<Task, 'id' | 'title' | 'level' | 'isDone' | 'startDate' | 'dueDate' | 'priority' | 'responsible' | 'assigneeIds'>
+  proposal: Pick<Proposal, 'id' | 'code' | 'ownerId' | 'memberIds'>
+  stores: StoreSnapshot[]
   /** Titles of ancestors, top-down. */
   path: string[]
 }
@@ -84,19 +98,172 @@ export interface DashboardSummary {
   byChannel: { channel: Channel; count: number }[]
   byStore: { store: Store; active: number; completed: number; overdueTasks: number }[]
   upcomingLaunches: ProposalListItem[]
-  atRisk: ProposalListItem[]
+  /** IN_PROGRESS proposals (and COMPLETED ones with a production alarm) with a proposalHealth() chip, LATE first, then targetDate. */
+  atRisk: (ProposalListItem & { health: Health })[]
   overdueTasks: TaskWithContext[]
   workload: { user: User; open: number; overdue: number; dueThisWeek: number }[]
+  /** Org-wide overdue buyer rows (IN_PROGRESS + COMPLETED), merged, role-agnostic (team = false). */
+  buyerOverdue: BuyerAgendaItem[]
 }
 
-export interface HomeSummary {
+// ---------- home dashboard (GET /dashboard/home, GET /dashboard/badge) ----------
+// Pure rules (buckets, responsibility, merge, sort, phase, health) are in home.ts.
+
+/** 'waiting' rows are collapsed in the agenda footer. */
+export type AgendaBucket = 'overdue' | 'today' | 'week' | 'next' | 'waiting'
+export type BuyerAction = 'sendInfo' | 'present' | 'confirmPresented' | 'schedule' | 'followUp'
+export type ProposalAction = 'createPackage' | 'closeOut'
+/** confirm / review: owner or an involved MANAGER/ADMIN · fillQuantity: members without that right · deliver: owner + members. */
+export type ProductionAction = 'confirmProduction' | 'fillQuantity' | 'deliverProduction' | 'reviewProduction'
+export type ProjectPhase = 'PREP' | 'READY' | 'BUYER' | 'LISTED' | 'NOT_LISTED' | 'CLOSED'
+export type HealthLevel = 'LATE' | 'AT_RISK'
+
+export interface Health {
+  level: HealthLevel
+  /** Thai copy, always shown with the chip. */
+  reason: string
+}
+
+export interface ProposalBrief {
+  id: string
+  code: string
+  title: string
+  channel: Channel
+  status: ProposalStatus
+  targetDate: ISODate
+  ownerId: string
+  memberIds: string[]
+}
+
+/** One in-proposal store with its track's stage (null = in no package yet). Same shape as the web's StageBarItem. */
+export interface StoreStage {
+  store: StoreSnapshot
+  stage: PresentationStage | null
+  round: number
+  trackId: string | null
+}
+
+/** The part of a TrackView the home rows read (toTrackBrief). */
+export type TrackBrief = Pick<
+  TrackView,
+  'stage' | 'round' | 'plan' | 'presentedDate' | 'expectedResultDate' | 'reviewSince' | 'openRequest' | 'outcome' | 'accepted' | 'needsInfoCount'
+>
+
+export interface AgendaBase {
+  key: string
+  bucket: AgendaBucket
+  /** Task due date / buyer key date; null = undated (proposal items are always null). */
+  date: ISODate | null
+  proposal: ProposalBrief
+}
+
+export interface TaskAgendaItem extends AgendaBase, Omit<TaskRowItem, 'proposal'> {
+  kind: 'task'
+}
+
+export interface BuyerAgendaItem extends AgendaBase {
+  kind: 'buyer'
+  action: BuyerAction
+  /** At least one, in proposal store order. */
+  tracks: { trackId: string; store: StoreSnapshot }[]
+  /** Of the first track (the merge keys are identical). */
+  view: TrackBrief
+  /** presentation_packages.seq of the first track. */
+  packageSeq: number
+  /** Someone else is responsible and it is overdue; I am the owner or a member. */
+  team: boolean
+  /** Named presenters / preparer; [] = the owner. */
+  responsibleIds: string[]
+  canRecord: boolean
+}
+
+export interface ProposalAgendaItem extends AgendaBase {
+  kind: 'proposal'
+  action: ProposalAction
+  stores: StoreStage[]
+  prep: Progress
+  openTasks: number
+}
+
+/** "รอผลิต" rows (productionAgendaFor); never in the 'waiting' bucket. */
+export interface ProductionAgendaItem extends AgendaBase {
+  kind: 'production'
+  action: ProductionAction
+  /** confirm: pending · fillQuantity: pending without a quantity · deliver: IN_PRODUCTION + PRODUCED · review: needing review. */
+  count: number
+  /** Pending SKUs without a saved quantity (confirm / fillQuantity). */
+  missingQty: number
+  /** Production deadline (launch − lead days). */
+  deadline: ISODate
+  overdueDays: number
+  /** Passing stores of the counted rows, proposal order, unique. */
+  stores: StoreSnapshot[]
+}
+
+export type AgendaItem = TaskAgendaItem | BuyerAgendaItem | ProposalAgendaItem | ProductionAgendaItem
+
+/** The production counts home rows read (toProductionBrief). */
+export type ProductionBrief = Pick<
+  ProductionSummary,
+  'state' | 'deadline' | 'daysToDeadline' | 'pending' | 'missingQty' | 'inProduction' | 'produced' | 'delivered' | 'confirmed' | 'undelivered' | 'flagged' | 'overdueDays'
+>
+
+export interface HomeProject {
+  proposal: ProposalBrief & { shelfType: Pick<ShelfType, 'id' | 'name' | 'color'> }
+  phase: ProjectPhase
+  health: Health | null
+  /** Leaf tasks; overdue only counts when IN_PROGRESS. */
+  prep: Progress & { overdue: number }
+  /** In-proposal stores, in proposal store order. */
+  stores: StoreStage[]
+  /** "รอผลิต" counts; null / absent when nothing passed or everything was cancelled / skipped. */
+  production?: ProductionBrief | null
+}
+
+export interface BuyerResult {
+  proposal: Pick<ProposalBrief, 'id' | 'code' | 'title' | 'channel'>
+  trackId: string
+  store: StoreSnapshot
+  /** stage is one of FINAL_STAGES. */
+  view: TrackBrief
+}
+
+/** Department alarms over IN_PROGRESS proposals, plus COMPLETED ones with a production alarm (dashboard.monitor only). */
+export interface TeamPulse {
+  /** Projects with health LATE. */
+  late: number
+  /** Projects with health AT_RISK. */
+  atRisk: number
+  /** Merged overdue buyer rows (IN_PROGRESS + COMPLETED). */
+  buyerOverdue: number
+  overdueTasks: number
+}
+
+export interface HomeDashboard {
   today: ISODate
-  overdue: TaskWithContext[]
-  dueToday: TaskWithContext[]
-  dueThisWeek: TaskWithContext[]
-  myProposals: ProposalListItem[]
-  upcomingLaunches: ProposalListItem[]
-  counts: { open: number; overdue: number; doneThisWeek: number }
+  agenda: {
+    /** Every bucket including 'waiting', sorted with compareAgenda. */
+    items: AgendaItem[]
+    /** Rows after merging. */
+    total: Record<AgendaBucket, number>
+    waiting: { inReview: number; laterMeetings: number }
+    /** Open tasks due after today + 7, or undated (IN_PROGRESS proposals). */
+    laterTasks: number
+    /** Open tasks in DRAFT / ON_HOLD / COMPLETED proposals: never listed. */
+    parkedTasks: number
+    doneLast7Days: number
+  }
+  /** Involved DRAFT / IN_PROGRESS (+ COMPLETED still launching, with open tracked stores or with production to do); ON_HOLD only counted. */
+  projects: HomeProject[]
+  onHold: number
+  /** items ≤ RESULTS_MAX_ITEMS; the counts cover every outcome in the window. */
+  results: { items: BuyerResult[]; passed: number; rejected: number; withdrawn: number }
+  /** Only with dashboard.monitor. */
+  team: TeamPulse | null
+}
+
+export interface NavBadges {
+  overdueTasks: number
 }
 
 // ---------- inputs ----------

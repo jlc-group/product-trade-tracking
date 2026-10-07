@@ -1,11 +1,12 @@
-import { diffDays, storeNamesLabel } from '@flowtrade/shared'
-import { AlertTriangleIcon, ShieldCheckIcon, TimerIcon } from 'lucide-react'
+import { healthRank, storeNamesLabel } from '@flowtrade/shared'
+import { AlertTriangleIcon, ShieldCheckIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
-import type { ProposalListItem } from '@/api/types'
+import type { DashboardSummary } from '@/api/types'
 import { EmptyState, LaunchCountdown, ProgressBar } from '@/components/common/misc'
-import { StoreLogos } from '@/components/common/badges'
+import { StatusBadge, StoreLogos } from '@/components/common/badges'
 import { UserAvatar } from '@/components/common/user-avatar'
+import { HealthChip } from '@/features/home/health-chip'
 import { formatDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { MonitorSection, ShowMoreButton } from './parts'
@@ -13,39 +14,29 @@ import { fmt } from './utils'
 
 const LIMIT = 6
 
-function RiskPill({ item, today }: { item: ProposalListItem; today: string }) {
-  if (item.overdueCount > 0) {
-    return (
-      <span className="inline-flex h-6 items-center gap-1 rounded-full bg-danger-soft px-2 text-xs font-medium whitespace-nowrap text-danger">
-        <AlertTriangleIcon className="size-3.5" />
-        เลยกำหนด {fmt(item.overdueCount)} งาน
-      </span>
-    )
-  }
-  const days = diffDays(today, item.targetDate)
-  return (
-    <span className="inline-flex h-6 items-center gap-1 rounded-full bg-warning-soft px-2 text-xs font-medium whitespace-nowrap text-warning-foreground">
-      <TimerIcon className="size-3.5" />
-      {days <= 0 ? 'ถึงวันวางขายแล้ว' : `อีก ${fmt(days)} วัน`} · เสร็จ {item.progress.percent}%
-    </span>
-  )
-}
+type AtRiskItem = DashboardSummary['atRisk'][number]
 
-function AtRiskRow({ item, today }: { item: ProposalListItem; today: string }) {
+function AtRiskRow({ item }: { item: AtRiskItem }) {
+  const { health } = item
   return (
     <li>
       <Link
         to={`/proposals/${item.id}`}
-        className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 rounded-lg px-2 py-3 outline-none hover:bg-muted/60 focus-visible:ring-3 focus-visible:ring-ring/50 @lg:grid-cols-[minmax(0,1fr)_7rem_8.5rem] @lg:gap-x-4 @3xl:grid-cols-[minmax(0,1fr)_7.5rem_9rem_auto]"
+        className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 rounded-lg px-2 py-3 outline-none hover:bg-muted/60 focus-visible:ring-3 focus-visible:ring-ring/50 @lg:grid-cols-[minmax(0,1fr)_7rem_8.5rem_auto] @lg:gap-x-4"
       >
-        {/* identity */}
-        <div className="col-span-2 flex min-w-0 items-center gap-3 @lg:col-span-1">
+        {/* identity + reason */}
+        <div className="col-span-2 flex min-w-0 items-start gap-3 @lg:col-span-1">
           <StoreLogos stores={item.stores} size="md" max={2} />
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium group-hover:text-primary">{item.title}</p>
+            <div className="flex min-w-0 items-center gap-2">
+              <p className="truncate text-sm font-medium group-hover:text-primary">{item.title}</p>
+              <HealthChip health={health} />
+              {item.status === 'COMPLETED' && <StatusBadge status={item.status} className="h-5 shrink-0 px-2 text-[11px]" />}
+            </div>
             <p className="truncate text-xs text-muted-foreground">
               <span className="tabular">{item.code}</span> · {storeNamesLabel(item.stores.map((s) => s.name))}
             </p>
+            <p className={cn('mt-0.5 text-xs font-medium', health.level === 'LATE' ? 'text-danger' : 'text-warning-foreground')}>{health.reason}</p>
           </div>
           <UserAvatar user={item.owner} size="sm" className="@lg:hidden" />
         </div>
@@ -53,35 +44,29 @@ function AtRiskRow({ item, today }: { item: ProposalListItem; today: string }) {
         {/* target date */}
         <div className="flex items-baseline gap-2 pl-11 @lg:block @lg:pl-0">
           <p className="tabular text-xs text-muted-foreground">{formatDate(item.targetDate)}</p>
-          <LaunchCountdown targetDate={item.targetDate} />
+          <LaunchCountdown targetDate={item.targetDate} open={health.level === 'LATE'} />
         </div>
 
-        {/* progress */}
-        <div className="col-span-2 row-start-3 pl-11 @lg:col-span-1 @lg:row-start-auto @lg:pl-0">
-          <ProgressBar progress={item.progress} />
-        </div>
+        {/* prep progress */}
+        <ProgressBar progress={item.progress} className="w-32 @lg:w-auto" />
 
-        {/* reason + owner */}
-        <div className="col-start-2 row-start-2 flex items-center justify-end gap-2 @lg:col-span-3 @lg:col-start-1 @lg:row-start-auto @lg:justify-start @3xl:col-span-1 @3xl:col-start-auto @3xl:justify-end">
-          <RiskPill item={item} today={today} />
-          <UserAvatar user={item.owner} size="sm" className="hidden @lg:inline-flex" />
-        </div>
+        <UserAvatar user={item.owner} size="sm" className="hidden @lg:inline-flex" />
       </Link>
     </li>
   )
 }
 
-export function AtRiskList({ items, today, className }: { items: ProposalListItem[]; today: string; className?: string }) {
+/** IN_PROGRESS proposals (and COMPLETED ones with a production alarm) with a proposalHealth() chip: LATE first, then by launch date. */
+export function AtRiskList({ items, className }: { items: AtRiskItem[]; className?: string }) {
   const [expanded, setExpanded] = useState(false)
-  const sorted = useMemo(
-    () => [...items].sort((a, b) => b.overdueCount - a.overdueCount || a.targetDate.localeCompare(b.targetDate)),
-    [items],
-  )
+  const sorted = useMemo(() => [...items].sort((a, b) => healthRank(a.health) - healthRank(b.health) || a.targetDate.localeCompare(b.targetDate)), [items])
   const shown = expanded ? sorted : sorted.slice(0, LIMIT)
-  const withOverdue = items.filter((i) => i.overdueCount > 0).length
+  const late = items.filter((i) => i.health.level === 'LATE').length
+  const atRisk = items.filter((i) => i.health.level === 'AT_RISK').length
 
   return (
     <MonitorSection
+      id="at-risk"
       className={className}
       icon={<AlertTriangleIcon className={cn(items.length > 0 && 'text-danger')} />}
       title={
@@ -92,27 +77,22 @@ export function AtRiskList({ items, today, className }: { items: ProposalListIte
       }
       description={
         items.length > 0
-          ? [
-              withOverdue > 0 && `${fmt(withOverdue)} โปรเจกต์มีงานเลยกำหนด`,
-              items.length - withOverdue > 0 && `${fmt(items.length - withOverdue)} โปรเจกต์ใกล้วันวางขาย (≤ 14 วัน) แต่คืบหน้าไม่ถึง 70%`,
-            ]
-              .filter(Boolean)
-              .join(' · ')
-          : 'โปรเจกต์ที่มีงานเลยกำหนด หรือใกล้วันวางขายแต่ยังคืบหน้าน้อย'
+          ? [late > 0 && `ล่าช้า ${fmt(late)} โปรเจกต์ (เลยวันวางขายแล้วยังไม่ได้ผลจาก Buyer)`, atRisk > 0 && `เสี่ยง ${fmt(atRisk)} โปรเจกต์`].filter(Boolean).join(' · ')
+          : 'โปรเจกต์ที่กำลังดำเนินการซึ่งเลยวันวางขายแล้วยังไม่ได้ผล หรือมีเรื่องเลยกำหนด หรือใกล้วันวางขายแต่ยังไม่ได้นำเสนอ/ยังรอผล'
       }
     >
       {items.length === 0 ? (
         <EmptyState
           icon={<ShieldCheckIcon className="size-5 text-success" />}
           title="ไม่มีโปรเจกต์ที่น่ากังวล"
-          description="ทุกโปรเจกต์ไม่มีงานเลยกำหนด และโปรเจกต์ที่ใกล้วางขายคืบหน้าตามแผน"
+          description="ทุกโปรเจกต์ที่กำลังดำเนินการไม่มีงานหรือเรื่อง Buyer เลยกำหนด และได้นำเสนอทันวันวางขาย"
           className="py-10"
         />
       ) : (
         <>
           <ul className="@container -mx-2 divide-y">
             {shown.map((item) => (
-              <AtRiskRow key={item.id} item={item} today={today} />
+              <AtRiskRow key={item.id} item={item} />
             ))}
           </ul>
           <ShowMoreButton expanded={expanded} hiddenCount={sorted.length - shown.length} total={sorted.length} onToggle={() => setExpanded((v) => !v)} noun="โปรเจกต์" />

@@ -4,7 +4,17 @@ import type {
   AppNotification,
   Channel,
   Department,
+  PresentationData,
   Product,
+  ProductionAdvanceInput,
+  ProductionBackInput,
+  ProductionCancelInput,
+  ProductionConfirmInput,
+  ProductionDatesInput,
+  ProductionKeepInput,
+  ProductionPlanInput,
+  ProductionQuantitiesInput,
+  ProductionView,
   Progress,
   Proposal,
   ProposalStatus,
@@ -18,18 +28,23 @@ import {
   ApiError,
   type ActivityWithActor,
   type CommentWithAuthor,
+  type CreatePresentationPackageInput,
   type CreateProposalInput,
   type CreateTaskInput,
   type DepartmentInput,
   type DashboardSummary,
-  type HomeSummary,
+  type EditPresentationEventInput,
+  type HomeDashboard,
   type MoveTaskInput,
   type MyTasksFilters,
+  type NavBadges,
   type ProductInput,
   type ProposalDetail,
   type ProposalFilters,
   type ProposalListItem,
   type ProposalReport,
+  type RecordPresentationInput,
+  type SchedulePresentationInput,
   type ShelfTypeInput,
   type StoreInput,
   type TaskWithContext,
@@ -249,6 +264,39 @@ export const httpApi = {
       get<TaskWithContext[]>('/tasks/mine', { status: filters.status, due: filters.due, proposalId: filters.proposalId }),
   },
 
+  /** The "นำเสนอ Buyer" track; every call answers the proposal's whole PresentationData. */
+  presentation: {
+    get: (proposalId: string) => get<PresentationData>(`/proposals/${id(proposalId)}/presentation`),
+    createPackage: (proposalId: string, input: CreatePresentationPackageInput) => post<PresentationData>(`/proposals/${id(proposalId)}/presentation/packages`, input),
+    deletePackage: (proposalId: string, packageId: string) => del<PresentationData>(`/proposals/${id(proposalId)}/presentation/packages/${id(packageId)}`),
+    record: (proposalId: string, input: RecordPresentationInput) => post<PresentationData>(`/proposals/${id(proposalId)}/presentation/record`, input),
+    schedule: (proposalId: string, trackId: string, input: SchedulePresentationInput) =>
+      post<PresentationData>(`/proposals/${id(proposalId)}/presentation/tracks/${id(trackId)}/schedule`, input),
+    revert: (proposalId: string, trackId: string, targetEventId: string) =>
+      post<PresentationData>(`/proposals/${id(proposalId)}/presentation/tracks/${id(trackId)}/revert`, { targetEventId }),
+    editEvent: (proposalId: string, trackId: string, input: EditPresentationEventInput) =>
+      post<PresentationData>(`/proposals/${id(proposalId)}/presentation/tracks/${id(trackId)}/edit`, input),
+    removeTrack: (proposalId: string, trackId: string) => del<PresentationData>(`/proposals/${id(proposalId)}/presentation/tracks/${id(trackId)}`),
+  },
+
+  /** "รอผลิต": every call answers the proposal's whole ProductionView. */
+  production: {
+    get: (proposalId: string) => get<ProductionView>(`/proposals/${id(proposalId)}/production`),
+    saveQuantities: (proposalId: string, input: ProductionQuantitiesInput) => put<ProductionView>(`/proposals/${id(proposalId)}/production/quantities`, input),
+    savePlan: (proposalId: string, input: ProductionPlanInput) => patch<ProductionView>(`/proposals/${id(proposalId)}/production/plan`, input),
+    confirm: (proposalId: string, input: ProductionConfirmInput) => post<ProductionView>(`/proposals/${id(proposalId)}/production/confirm`, input),
+    advance: (proposalId: string, input: ProductionAdvanceInput) => post<ProductionView>(`/proposals/${id(proposalId)}/production/advance`, input),
+    back: (proposalId: string, productId: string, input: ProductionBackInput) =>
+      post<ProductionView>(`/proposals/${id(proposalId)}/production/items/${id(productId)}/back`, input),
+    editDates: (proposalId: string, productId: string, input: ProductionDatesInput) =>
+      patch<ProductionView>(`/proposals/${id(proposalId)}/production/items/${id(productId)}/dates`, input),
+    cancel: (proposalId: string, productId: string, input: ProductionCancelInput) =>
+      post<ProductionView>(`/proposals/${id(proposalId)}/production/items/${id(productId)}/cancel`, input),
+    restore: (proposalId: string, productId: string) => post<ProductionView>(`/proposals/${id(proposalId)}/production/items/${id(productId)}/restore`, {}),
+    keep: (proposalId: string, productId: string, input: ProductionKeepInput) =>
+      post<ProductionView>(`/proposals/${id(proposalId)}/production/items/${id(productId)}/keep`, input),
+  },
+
   comments: {
     list: (taskId: string) => get<CommentWithAuthor[]>(`/tasks/${id(taskId)}/comments`),
     counts: (proposalId: string) => get<Record<string, number>>(`/proposals/${id(proposalId)}/comment-counts`),
@@ -266,7 +314,9 @@ export const httpApi = {
   },
 
   dashboard: {
-    home: () => get<HomeSummary>('/dashboard/home'),
+    home: () => get<HomeDashboard>('/dashboard/home'),
+    /** The sidebar badge: my overdue tasks (cheap; mounted on every page). */
+    badge: () => get<NavBadges>('/dashboard/badge'),
     summary: () => get<DashboardSummary>('/dashboard/summary'),
   },
 }

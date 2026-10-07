@@ -1,4 +1,4 @@
-import { addDays, type ISODate, type Store } from '@flowtrade/shared'
+import { addDays, STATUS_LABEL, STATUS_ORDER, type ISODate, type Store } from '@flowtrade/shared'
 import type { TaskWithContext } from '@/api'
 import { formatDate } from '@/lib/format'
 
@@ -14,11 +14,13 @@ export interface TaskGroup {
   project?: { id: string; code: string; title: string; stores: Store[] }
 }
 
-type DueBucket = 'overdue' | 'past' | 'today' | 'tomorrow' | 'week' | 'later' | 'none'
+type DueBucket = 'overdue' | 'past' | 'today' | 'tomorrow' | 'week' | 'later' | 'none' | 'uncounted'
 
-const BUCKET_ORDER: DueBucket[] = ['overdue', 'past', 'today', 'tomorrow', 'week', 'later', 'none']
+const BUCKET_ORDER: DueBucket[] = ['overdue', 'past', 'today', 'tomorrow', 'week', 'later', 'none', 'uncounted']
 
+/** Open tasks the due filters and the badge leave out (parents, non-IN_PROGRESS projects) get their own group. */
 function bucketOf(item: TaskWithContext, isDone: boolean, today: ISODate): DueBucket {
+  if (!isDone && item.countable === false) return 'uncounted'
   const due = item.task.dueDate
   if (!due) return 'none'
   if (due < today) return isDone ? 'past' : 'overdue'
@@ -30,7 +32,14 @@ function bucketOf(item: TaskWithContext, isDone: boolean, today: ISODate): DueBu
 
 const short = (d: ISODate) => formatDate(d, { withYear: false })
 
-function bucketMeta(bucket: DueBucket, today: ISODate): Pick<TaskGroup, 'title' | 'subtitle' | 'tone'> {
+/** What the group holds: tasks of DRAFT / ON_HOLD / COMPLETED projects and/or parent tasks. */
+function uncountedSubtitle(items: TaskWithContext[]) {
+  const statuses = STATUS_ORDER.filter((s) => s !== 'IN_PROGRESS' && items.some((i) => i.proposal.status === s))
+  const parts = [statuses.length > 0 && `โปรเจกต์${statuses.map((s) => STATUS_LABEL[s]).join('/')}`, items.some((i) => i.proposal.status === 'IN_PROGRESS') && 'งานแม่ที่มีงานย่อย']
+  return parts.filter(Boolean).join(' · ')
+}
+
+function bucketMeta(bucket: DueBucket, today: ISODate, items: TaskWithContext[]): Pick<TaskGroup, 'title' | 'subtitle' | 'tone'> {
   switch (bucket) {
     case 'overdue':
       return { title: 'เลยกำหนด', subtitle: 'จัดการก่อนเป็นอันดับแรก', tone: 'danger' }
@@ -46,6 +55,8 @@ function bucketMeta(bucket: DueBucket, today: ISODate): Pick<TaskGroup, 'title' 
       return { title: 'หลังจากนั้น', subtitle: `ตั้งแต่ ${short(addDays(today, 8))}`, tone: 'muted' }
     case 'none':
       return { title: 'ยังไม่กำหนดวัน', subtitle: 'ควรกำหนดวันครบกำหนดให้ชัดเจน', tone: 'muted' }
+    case 'uncounted':
+      return { title: 'ไม่นับเป็นงานเลยกำหนด', subtitle: uncountedSubtitle(items), tone: 'muted' }
   }
 }
 
@@ -55,7 +66,7 @@ export function groupByDue(items: TaskWithContext[], isDone: (item: TaskWithCont
     const b = bucketOf(item, isDone(item), today)
     buckets.set(b, [...(buckets.get(b) ?? []), item])
   }
-  return BUCKET_ORDER.filter((b) => buckets.has(b)).map((b) => ({ key: b, items: buckets.get(b)!, ...bucketMeta(b, today) }))
+  return BUCKET_ORDER.filter((b) => buckets.has(b)).map((b) => ({ key: b, items: buckets.get(b)!, ...bucketMeta(b, today, buckets.get(b)!) }))
 }
 
 export function groupByProject(items: TaskWithContext[], isDone: (item: TaskWithContext) => boolean, today: ISODate): TaskGroup[] {
@@ -77,7 +88,7 @@ export function groupByProject(items: TaskWithContext[], isDone: (item: TaskWith
   const earliest = (g: TaskGroup) => g.items.reduce((min, i) => (i.task.dueDate && i.task.dueDate < min ? i.task.dueDate : min), '9999-12-31')
   return [...groups.values()]
     .map((g) => {
-      const overdue = g.items.filter((i) => !isDone(i) && !!i.task.dueDate && i.task.dueDate < today).length
+      const overdue = g.items.filter((i) => i.countable !== false && !isDone(i) && !!i.task.dueDate && i.task.dueDate < today).length
       return { ...g, tone: overdue > 0 ? ('danger' as const) : ('default' as const), subtitle: overdue > 0 ? `เลยกำหนด ${overdue} งาน` : undefined }
     })
     .sort((a, b) => earliest(a).localeCompare(earliest(b)))

@@ -3,14 +3,19 @@ import {
   CalendarClockIcon,
   CheckIcon,
   CopyIcon,
+  FactoryIcon,
   FlagIcon,
   HistoryIcon,
+  PackageCheckIcon,
+  PackageXIcon,
   PencilIcon,
   PlusIcon,
   RotateCcwIcon,
   RotateCwIcon,
   SparklesIcon,
   Trash2Icon,
+  TruckIcon,
+  Undo2Icon,
   type LucideIcon,
 } from 'lucide-react'
 import type { ActivityWithActor } from '@/api'
@@ -37,6 +42,17 @@ const ACTION_STYLE: Record<string, { icon: LucideIcon; tone: string }> = {
   'task.move': { icon: ArrowUpDownIcon, tone: 'bg-muted text-muted-foreground' },
   'task.update': { icon: PencilIcon, tone: 'bg-muted text-muted-foreground' },
   'task.delete': { icon: Trash2Icon, tone: 'bg-danger-soft text-danger' },
+  'production.confirm': { icon: FactoryIcon, tone: 'bg-brand-soft text-brand' },
+  'production.produced': { icon: PackageCheckIcon, tone: 'bg-success-soft text-success' },
+  'production.delivered': { icon: TruckIcon, tone: 'bg-success-soft text-success' },
+  'production.quantity': { icon: PencilIcon, tone: 'bg-muted text-muted-foreground' },
+  'production.plan': { icon: CalendarClockIcon, tone: 'bg-warning-soft text-warning-foreground' },
+  'production.back': { icon: Undo2Icon, tone: 'bg-muted text-muted-foreground' },
+  'production.dates': { icon: CalendarClockIcon, tone: 'bg-muted text-muted-foreground' },
+  'production.cancel': { icon: PackageXIcon, tone: 'bg-danger-soft text-danger' },
+  'production.skip': { icon: PackageXIcon, tone: 'bg-muted text-muted-foreground' },
+  'production.restore': { icon: RotateCcwIcon, tone: 'bg-muted text-muted-foreground' },
+  'production.keep': { icon: FactoryIcon, tone: 'bg-warning-soft text-warning-foreground' },
 }
 const FALLBACK_STYLE = { icon: PencilIcon, tone: 'bg-muted text-muted-foreground' }
 

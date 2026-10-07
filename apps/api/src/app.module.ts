@@ -10,6 +10,8 @@ import { DashboardModule } from './modules/dashboard/dashboard.module.js'
 import { DepartmentsModule } from './modules/departments/departments.module.js'
 import { HealthController } from './health.controller.js'
 import { NotificationsModule } from './modules/notifications/notifications.module.js'
+import { PresentationModule } from './modules/presentation/presentation.module.js'
+import { ProductionModule } from './modules/production/production.module.js'
 import { ProductsModule } from './modules/products/products.module.js'
 import { ProposalsModule } from './modules/proposals/proposals.module.js'
 import { ShelfTypesModule } from './modules/shelf-types/shelf-types.module.js'
@@ -32,6 +34,8 @@ import { PrismaModule } from './prisma/prisma.service.js'
     TemplatesModule,
     ProposalsModule,
     TasksModule,
+    PresentationModule,
+    ProductionModule,
     CommentsModule,
     ActivityModule,
     NotificationsModule,

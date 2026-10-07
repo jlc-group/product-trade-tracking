@@ -1,5 +1,4 @@
 import {
-  canEditProposal,
   canManageTasks,
   computeProgress,
   computeToggle,
@@ -30,7 +29,6 @@ import { toast } from 'sonner'
 import type { ProposalDetail, UpdateTaskInput } from '@/api'
 import {
   qk,
-  useChangeProposalStatus,
   useCommentCounts,
   useDeleteTask,
   useDuplicateTask,
@@ -43,6 +41,8 @@ import {
 import { useCurrentUser } from '@/auth/auth'
 import { EmptyState, useConfirm } from '@/components/common/misc'
 import { Button } from '@/components/ui/button'
+import { usePresentation } from '@/features/presentation/hooks'
+import { canRecordPresentation } from '@/features/presentation/permissions'
 import { today } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { compareDepartments, departmentOptions } from './department-utils'
@@ -114,7 +114,7 @@ export function TaskTree({ proposal }: { proposal: ProposalDetail }) {
   const moveTask = useMoveTask(proposal.id)
   const deleteTask = useDeleteTask(proposal.id)
   const duplicateTask = useDuplicateTask(proposal.id)
-  const changeStatus = useChangeProposalStatus()
+  const presentation = usePresentation(proposal.id)
 
   const canManage = canManageTasks(me, proposal)
   const cancelled = proposal.status === 'CANCELLED'
@@ -204,17 +204,27 @@ export function TaskTree({ proposal }: { proposal: ProposalDetail }) {
         : undefined
       try {
         const result = await toggleTask.mutateAsync({ id: node.id, isDone })
-        if (isDone && result.allDone && proposal.status !== 'COMPLETED') {
-          const canClose = canEditProposal(me, proposal) && !cancelled
+        if (isDone && result.allDone && !cancelled) {
+          // Next step is the presentation track: bundle the work into a ชุดนำเสนอ, or go back to the existing one.
+          const hasTracks = (presentation.data?.tracks.length ?? 0) > 0
+          const canCreate = canRecordPresentation(me, proposal)
+          const goPresent = () =>
+            setSearchParams((prev) => {
+              const next = new URLSearchParams(prev)
+              next.delete('task')
+              next.delete('store')
+              next.set('tab', 'present')
+              if (!hasTracks) next.set('create', '1')
+              return next
+            })
           toast.success('งานครบ 100% แล้ว 🎉', {
-            description: canClose ? 'เปลี่ยนสถานะโปรเจกต์เป็น “เสร็จสิ้น” ได้เลย' : 'แจ้งเจ้าของโปรเจกต์ให้เปลี่ยนสถานะเป็น “เสร็จสิ้น”',
+            description: hasTracks
+              ? 'งานเตรียมกลับมาครบแล้ว — สร้างชุดใหม่หรือนำเสนอใหม่ได้'
+              : canCreate
+                ? 'ขั้นต่อไป: รวมงานเป็นชุดนำเสนอ แล้วติดตามผลจาก Buyer'
+                : 'แจ้งเจ้าของหรือทีมงานให้สร้างชุดนำเสนอ',
             duration: 10_000,
-            action: canClose
-              ? {
-                  label: 'ตั้งเป็นเสร็จสิ้น',
-                  onClick: () => changeStatus.mutate({ id: proposal.id, status: 'COMPLETED' }, { onSuccess: () => toast.success(`ปิดโปรเจกต์ ${proposal.code} เรียบร้อย`) }),
-                }
-              : undefined,
+            action: hasTracks ? { label: 'ไปที่แท็บนำเสนอ Buyer', onClick: goPresent } : canCreate ? { label: 'สร้างชุดนำเสนอ', onClick: goPresent } : undefined,
           })
         } else if (completedAncestor) {
           toast.success(`${levelNoun(completedAncestor.level)} “${completedAncestor.title}” เสร็จครบแล้ว 🎉`)
