@@ -217,12 +217,11 @@ export function ProposalAgendaRow({ item }: { item: ProposalAgendaItem }) {
 
 const PRODUCTION_BUTTON: Record<ProductionAction, string> = {
   confirmProduction: 'ยืนยันเริ่มผลิต',
-  fillQuantity: 'กรอกจำนวน',
   deliverProduction: 'บันทึกการผลิต',
   reviewProduction: 'ตรวจสอบ',
 }
 
-/** A "รอผลิต" step: confirm the passed SKUs, fill their quantities, deliver before the deadline, or review a changed pass. */
+/** A "รอผลิต" step: confirm the passed SKUs (quantities are entered there), deliver before the deadline, or review a changed pass. */
 export function ProductionAgendaRow({ item, today }: { item: ProductionAgendaItem; today: ISODate }) {
   const { proposal } = item
   const overdue = item.bucket === 'overdue'
@@ -231,9 +230,7 @@ export function ProductionAgendaRow({ item, today }: { item: ProductionAgendaIte
   const detail =
     item.action === 'reviewProduction'
       ? `ผลผ่าน Buyer หรือ${storeWord(proposal.channel)}ที่ผ่านเปลี่ยนไปหลังยืนยันผลิต — เลือกดำเนินการต่อ แก้จำนวน หรือยกเลิก`
-      : item.action !== 'deliverProduction' && item.missingQty > 0
-        ? `ยังไม่ได้กรอกจำนวน ${item.missingQty} SKU · ${due}`
-        : due
+      : due
 
   return (
     <li className="relative flex items-start gap-3 px-3 py-2.5 transition-colors hover:bg-muted/50 sm:px-4">

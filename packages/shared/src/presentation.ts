@@ -279,7 +279,7 @@ export const isStageKind = (kind: EventKind): kind is StageEventKind => STAGE_KI
 export const isStageEvent = (e: TrackEvent): e is EventOf<StageEventKind> => STAGE_KINDS.has(e.kind)
 export const isEditableKind = (kind: EventKind): kind is EditableKind => kind !== 'REVERTED' && kind !== 'EDITED'
 
-/** One step may go to several tracks at once only as "ยังไม่ทราบผล" (PRESENTED alone) or "ผ่าน" with every SKU. */
+/** One step may go to several tracks at once only as "นำเสนอแล้ว" (PRESENTED alone) or "ผ่าน" with every SKU. */
 export function bulkStepAllowed(events: StageEvent[]) {
   return events.every((e) => e.kind === 'PRESENTED' || (e.kind === 'PASSED' && e.acceptedProductIds === null))
 }

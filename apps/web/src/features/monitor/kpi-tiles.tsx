@@ -119,7 +119,7 @@ export function KpiTiles({ data }: { data: DashboardSummary }) {
   ]
 
   return (
-    <section aria-label="ตัวเลขสรุป" className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+    <section aria-label="ตัวเลขสรุป" className="grid grid-cols-2 gap-3 sm:grid-cols-3 3xl:grid-cols-6">
       {tiles.map((tile) => (
         <StatTile key={tile.key} tile={tile} />
       ))}

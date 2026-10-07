@@ -35,8 +35,10 @@ export interface ProductionItem {
   /** The real press of "ยืนยันเริ่มผลิต"; null = never confirmed. */
   confirmedAt: ISODateTime | null
   confirmedById: string | null
-  /** Production start (business date); may be earlier than confirmedAt. */
+  /** Production start (business date): the earliest pass of the confirmed set (earlier rows: a picked start). */
   startedOn: ISODate | null
+  /** "วันที่ต้องการสินค้า" picked at confirm: this SKU's delivery due date; null = the plan deadline (older rows). */
+  neededOn: ISODate | null
   producedOn: ISODate | null
   producedById: string | null
   deliveredOn: ISODate | null
@@ -55,7 +57,7 @@ export interface ProductionItem {
 }
 
 /** What deriveProduction reads of an item (the home builder loads only these). */
-export type ProductionItemCore = Pick<ProductionItem, 'productId' | 'status' | 'quantity' | 'confirmedAt' | 'deliveredOn' | 'dueOn' | 'ackStoreIds'>
+export type ProductionItemCore = Pick<ProductionItem, 'productId' | 'status' | 'quantity' | 'confirmedAt' | 'neededOn' | 'deliveredOn' | 'dueOn' | 'ackStoreIds'>
 
 export interface PassedStore {
   store: StoreSnapshot
@@ -92,12 +94,17 @@ export interface ProductionRowCore<I extends ProductionItemCore = ProductionItem
   storesAdded: StoreSnapshot[]
   /** Confirmed rows: acknowledged stores that no longer pass. */
   storesRemovedCount: number
+  /** Delivery due date: dueOn frozen at delivery, else the item's neededOn, else the plan deadline. */
+  dueOn: ISODate
   late: ProductionLate | null
 }
 
 export interface ProductionSummary {
   state: ProductionState
+  /** The earliest due date of the SKUs not delivered yet (their "วันที่ต้องการสินค้า", else planDeadline); planDeadline when none. */
   deadline: ISODate
+  /** launch − leadDays: the default due date and the confirm dialog's starting value. */
+  planDeadline: ISODate
   leadDays: number
   /** diffDays(today, deadline); negative = passed. */
   daysToDeadline: number
@@ -106,8 +113,6 @@ export interface ProductionSummary {
   /** Shown rows that are passed. */
   passed: number
   pending: number
-  /** Pending rows without a saved quantity. */
-  missingQty: number
   inProduction: number
   produced: number
   delivered: number
@@ -168,7 +173,7 @@ export interface ProductionEvent {
   leadDaysBefore: number | null
   leadDaysAfter: number | null
   reason: string | null
-  /** DATES: { producedOn?: [before, after], deliveredOn?: [before, after] }; PLAN: { noteChanged }; KEEP: { storeIds }; else {}. */
+  /** DATES: { neededOn? | producedOn? | deliveredOn? (startedOn? in older rows): [before, after] }; CONFIRM: { neededOn }; PLAN: { noteChanged }; KEEP: { storeIds }; else {}. */
   detail: Record<string, unknown>
 }
 
@@ -195,9 +200,9 @@ export interface ProductionView {
 
 // ---------- request bodies (every route answers the whole ProductionView) ----------
 
-/** PUT …/production/quantities; `before` = the saved value the client showed (409 when it moved). */
+/** PUT …/production/quantities: confirmed SKUs only (a pending SKU gets its quantity at confirm); `before` = the saved value the client showed (409 when it moved). */
 export interface ProductionQuantitiesInput {
-  items: { productId: string; quantity: number | null; before: number | null }[]
+  items: { productId: string; quantity: number; before: number | null }[]
 }
 
 /** PATCH …/production/plan (≥ 1 key); leadDays needs canDecide, note is team. */
@@ -209,8 +214,8 @@ export interface ProductionPlanInput {
 /** POST …/production/confirm: exactly the pending set; `saved` = the saved quantity the client showed. */
 export interface ProductionConfirmInput {
   items: { productId: string; quantity: number; saved: number | null }[]
-  /** Production start; default today, ≤ today, ≥ the earliest pass of these SKUs. */
-  startedOn?: ISODate
+  /** "วันที่ต้องการสินค้า" (the delivery due date of these SKUs): today … latestNeededOn(); default defaultNeededOn(). */
+  neededOn?: ISODate
 }
 
 /** POST …/production/advance: one step, or IN_PRODUCTION → PRODUCED → DELIVERED with `to` + `deliveredOn`. */
@@ -230,6 +235,7 @@ export interface ProductionBackInput {
 
 /** PATCH …/items/:productId/dates (≥ 1 key). */
 export interface ProductionDatesInput {
+  neededOn?: ISODate
   producedOn?: ISODate
   deliveredOn?: ISODate
 }
@@ -268,6 +274,19 @@ export const NEXT_PRODUCTION: Partial<Record<ProductionStatus, ProductionStatus>
 export const PREV_PRODUCTION: Partial<Record<ProductionStatus, ProductionStatus>> = { IN_PRODUCTION: 'PENDING', PRODUCED: 'IN_PRODUCTION', DELIVERED: 'PRODUCED' }
 
 export const isConfirmedStatus = (status: ProductionStatus) => CONFIRMED_STATUSES.includes(status)
+
+/**
+ * Why a proposal can't be deleted: `live` SKUs still confirmed (IN_PRODUCTION / PRODUCED / DELIVERED). Once every
+ * confirmed SKU was cancelled an Admin may delete it, its production history with it (others: PRODUCTION_HISTORY_DELETE).
+ * Same copy in the API and the menu.
+ */
+export function productionDeleteBlock(live: number, cancelledProposal: boolean): string {
+  const how = 'ยกเลิกการผลิตในแท็บ “รอผลิต” ก่อน'
+  return `มีสินค้าที่ยืนยันผลิตอยู่ ${live} SKU ลบไม่ได้ — ${cancelledProposal ? `เปลี่ยนสถานะโปรเจกต์กลับ แล้ว${how}` : `${how} หรือเปลี่ยนสถานะโปรเจกต์เป็น “ยกเลิก” แทน`}`
+}
+
+/** A proposal that ever confirmed production keeps that history: only `proposal.delete.any` (Admin) may delete it. */
+export const PRODUCTION_HISTORY_DELETE = 'โปรเจกต์นี้มีประวัติการผลิต — ลบได้เฉพาะ Admin (เปลี่ยนสถานะเป็น “ยกเลิก” แทนได้)'
 
 /** CANCELLED and never confirmed: the SKU was skipped ("ไม่ผลิต"), not a cancelled production. */
 export const isSkipped = (item: Pick<ProductionItem, 'status' | 'confirmedAt'> | null | undefined) => item?.status === 'CANCELLED' && !item.confirmedAt
@@ -372,12 +391,12 @@ export function earliestPassedOn(rows: Pick<ProductionRowCore<ProductionItemCore
   return min
 }
 
-function lateOf(status: ProductionStatus, item: ProductionItemCore | null, deadline: ISODate, today: ISODate): ProductionLate | null {
-  if (UNDELIVERED_STATUSES.includes(status)) return today > deadline ? { kind: 'OVERDUE', days: diffDays(deadline, today) } : null
-  if (status === 'DELIVERED' && item?.deliveredOn) {
-    const due = item.dueOn ?? deadline
-    return item.deliveredOn > due ? { kind: 'DELIVERED_LATE', days: diffDays(due, item.deliveredOn) } : null
-  }
+/** A row's delivery due date: dueOn frozen at delivery, else its "วันที่ต้องการสินค้า", else the plan deadline. */
+export const dueOf = (item: Pick<ProductionItemCore, 'neededOn' | 'dueOn'> | null, planDeadline: ISODate): ISODate => item?.dueOn ?? item?.neededOn ?? planDeadline
+
+function lateOf(status: ProductionStatus, item: ProductionItemCore | null, due: ISODate, today: ISODate): ProductionLate | null {
+  if (UNDELIVERED_STATUSES.includes(status)) return today > due ? { kind: 'OVERDUE', days: diffDays(due, today) } : null
+  if (status === 'DELIVERED' && item?.deliveredOn) return item.deliveredOn > due ? { kind: 'DELIVERED_LATE', days: diffDays(due, item.deliveredOn) } : null
   return null
 }
 
@@ -387,7 +406,7 @@ function lateOf(status: ProductionStatus, item: ProductionItemCore | null, deadl
  * skips ("ไม่ผลิต") of SKUs that no longer pass.
  */
 export function deriveProduction<I extends ProductionItemCore>(input: ProductionInput<I>, today: ISODate): ProductionDerived<I> {
-  const deadline = productionDeadline(input.targetDate, input.leadDays)
+  const planDeadline = productionDeadline(input.targetDate, input.leadDays)
   const passed = passedProducts(input.views, input.productIds)
   const byProduct = new Map(input.items.map((i) => [i.productId, i]))
   const inProposal = new Set(input.productIds)
@@ -423,7 +442,8 @@ export function deriveProduction<I extends ProductionItemCore>(input: Production
       needsReview: flag !== null && !kept,
       storesAdded,
       storesRemovedCount,
-      late: lateOf(status, item, deadline, today),
+      dueOn: dueOf(item, planDeadline),
+      late: lateOf(status, item, dueOf(item, planDeadline), today),
     }
   }
 
@@ -451,15 +471,18 @@ export function deriveProduction<I extends ProductionItemCore>(input: Production
   const state: ProductionState =
     rows.length === 0 ? 'NONE' : pending > 0 ? 'PENDING' : inProduction + produced > 0 ? 'ACTIVE' : delivered > 0 ? 'DONE' : 'CANCELLED'
 
+  // The date to beat: the earliest due date still open (SKUs confirmed with a "วันที่ต้องการสินค้า" carry their own).
+  const open = rows.filter((r) => UNDELIVERED_STATUSES.includes(r.status))
+  const deadline = open.reduce<ISODate>((min, r) => (r.dueOn < min ? r.dueOn : min), open[0]?.dueOn ?? planDeadline)
   const summary: ProductionSummary = {
     state,
     deadline,
+    planDeadline,
     leadDays: input.leadDays,
     daysToDeadline: diffDays(today, deadline),
     firstPassedOn: earliestPassedOn(rows),
     passed: rows.filter((r) => r.passed).length,
     pending,
-    missingQty: rows.filter((r) => r.status === 'PENDING' && r.item?.quantity == null).length,
     inProduction,
     produced,
     delivered,
@@ -505,9 +528,8 @@ export function productionErrors(date: DateText) {
     confirmedQtyOnly: 'จำนวนผลิตที่ยืนยันแล้วแก้ได้เฉพาะเจ้าของโปรเจกต์หรือผู้จัดการ',
     leadDaysOnly: 'ตั้ง deadline ได้เฉพาะเจ้าของโปรเจกต์หรือผู้จัดการ',
     qty: 'จำนวนผลิตต้องเป็นจำนวนเต็ม 1–1,000,000 ชิ้น',
-    qtyRequired: 'SKU ที่ยืนยันแล้วต้องมีจำนวนผลิต',
+    qtyRequired: 'กรอกจำนวนผลิต',
     qtyChanged: (sku: string) => `จำนวนผลิตของ ${sku} ถูกแก้ไขโดยผู้อื่นแล้ว — โหลดข้อมูลล่าสุดให้แล้ว ตรวจสอบแล้วลองอีกครั้ง`,
-    missingQty: (n: number) => `กรอกจำนวนผลิตให้ครบทุก SKU ก่อนยืนยัน (ยังขาด ${n} SKU)`,
     nothingPending: 'ไม่มี SKU ที่รอยืนยันแล้ว — โหลดข้อมูลล่าสุดให้แล้ว',
     pendingChanged: 'รายการ SKU ที่รอยืนยันเปลี่ยนไปแล้ว — โหลดข้อมูลล่าสุดให้แล้ว ตรวจสอบแล้วกดยืนยันอีกครั้ง',
     stale: (sku: string) => `สถานะของ ${sku} เปลี่ยนไปแล้ว — โหลดข้อมูลล่าสุดให้แล้ว ลองอีกครั้ง`,
@@ -517,8 +539,12 @@ export function productionErrors(date: DateText) {
     dateRequired: 'เลือกวันที่',
     dateInvalid: 'วันที่ไม่ถูกต้อง',
     dateFuture: 'วันที่ต้องไม่เกินวันนี้',
-    startBeforePass: (d: ISODate) => `วันที่เริ่มผลิตต้องไม่ก่อนวันที่ผ่าน Buyer (${date(d)})`,
-    producedBeforeStart: (d: ISODate) => `วันที่ผลิตเสร็จต้องไม่ก่อนวันที่เริ่มผลิต (${date(d)})`,
+    neededPast: 'วันที่ต้องการสินค้าต้องไม่ก่อนวันนี้',
+    neededTooLate: (d: ISODate) => `วันที่ต้องการสินค้าต้องไม่เกินวันวางขาย (${date(d)})`,
+    neededLaunchPassed: 'เลยวันวางขายแล้ว — วันที่ต้องการสินค้าเลือกได้แค่วันนี้',
+    neededDelivered: 'ส่งแล้ว — แก้วันที่ต้องการสินค้าไม่ได้',
+    neededOnly: 'แก้วันที่ต้องการสินค้าได้เฉพาะเจ้าของโปรเจกต์หรือผู้จัดการ',
+    producedBeforeStart: (d: ISODate) => `วันที่ผลิตเสร็จต้องไม่ก่อน ${date(d)}`,
     deliveredBeforeProduced: (d: ISODate) => `วันที่ส่งต้องไม่ก่อนวันที่ผลิตเสร็จ (${date(d)})`,
     producedAfterDelivered: (d: ISODate) => `วันที่ผลิตเสร็จต้องไม่หลังวันที่ส่ง (${date(d)})`,
     dateNotRecorded: 'ยังไม่ได้บันทึกขั้นนี้ จึงแก้วันที่ไม่ได้',
@@ -575,11 +601,22 @@ function stepDateError(date: unknown, today: ISODate, err: ProductionErrors): st
   return date > today ? err.dateFuture : null
 }
 
-/** Production start of a confirm: ≤ today and not before the earliest pass of the confirmed SKUs. */
-export function startedOnError(date: string | null | undefined, firstPassedOn: ISODate | null, today: ISODate, err: ProductionErrors = PERR): string | null {
-  const base = stepDateError(date, today, err)
-  if (base) return base
-  return firstPassedOn && (date as ISODate) < firstPassedOn ? err.startBeforePass(firstPassedOn) : null
+/** Latest "วันที่ต้องการสินค้า": the launch date, or today once the launch has passed. */
+export const latestNeededOn = (today: ISODate, targetDate: ISODate): ISODate => (targetDate > today ? targetDate : today)
+
+/** The confirm dialog's starting value: the plan deadline, kept within today … latestNeededOn(). */
+export function defaultNeededOn(planDeadline: ISODate, today: ISODate, targetDate: ISODate): ISODate {
+  const latest = latestNeededOn(today, targetDate)
+  return planDeadline < today ? today : planDeadline > latest ? latest : planDeadline
+}
+
+/** "วันที่ต้องการสินค้า" (confirm, edit dates): today … the launch date (only today once the launch has passed). */
+export function neededOnError(date: string | null | undefined, today: ISODate, targetDate: ISODate, err: ProductionErrors = PERR): string | null {
+  if (typeof date !== 'string' || date === '') return err.dateRequired
+  if (!isRealDate(date)) return err.dateInvalid
+  if (date < today) return err.neededPast
+  if (date <= latestNeededOn(today, targetDate)) return null
+  return targetDate > today ? err.neededTooLate(targetDate) : err.neededLaunchPassed
 }
 
 /** Date of advancing `item` to `to` on `date`: ≤ today, produced ≥ startedOn, delivered ≥ producedOn. */
@@ -597,16 +634,24 @@ export function advanceDateError(
   return item.producedOn && d < item.producedOn ? err.deliveredBeforeProduced(item.producedOn) : null
 }
 
-/** Edited dates of a PRODUCED / DELIVERED item: startedOn ≤ producedOn ≤ deliveredOn ≤ today. */
+/**
+ * Edited dates of a confirmed item: neededOn while not yet delivered (neededOnError; delivered → frozen), and
+ * startedOn ≤ producedOn ≤ deliveredOn ≤ today once those steps are recorded.
+ */
 export function datesErrors(
   item: Pick<ProductionItem, 'status' | 'startedOn' | 'producedOn' | 'deliveredOn'>,
-  patch: { producedOn?: string; deliveredOn?: string },
+  patch: { neededOn?: string; producedOn?: string; deliveredOn?: string },
   today: ISODate,
+  targetDate: ISODate,
   err: ProductionErrors = PERR,
-): Partial<Record<'producedOn' | 'deliveredOn', string>> {
-  const out: Partial<Record<'producedOn' | 'deliveredOn', string>> = {}
+): Partial<Record<'neededOn' | 'producedOn' | 'deliveredOn', string>> {
+  const out: Partial<Record<'neededOn' | 'producedOn' | 'deliveredOn', string>> = {}
   const hasProduced = item.status === 'PRODUCED' || item.status === 'DELIVERED'
   const hasDelivered = item.status === 'DELIVERED'
+  if (patch.neededOn !== undefined) {
+    const e = hasDelivered ? err.neededDelivered : !isConfirmedStatus(item.status) ? err.dateNotRecorded : neededOnError(patch.neededOn, today, targetDate, err)
+    if (e) out.neededOn = e
+  }
   let produced = item.producedOn
   if (patch.producedOn !== undefined) {
     const e = hasProduced ? advanceDateError('PRODUCED', patch.producedOn, item, today, err) : err.dateNotRecorded
@@ -638,20 +683,19 @@ export interface ProductionPerms {
   canDecide: boolean
 }
 
-/** Owner, members, MANAGER, ADMIN: draft quantities, the note, advance, edit dates. */
+/** Owner, members, MANAGER, ADMIN: the note, advance, edit dates. */
 export const canWorkProduction = (me: Actor | null | undefined, p: ProposalLike) => p.status !== 'CANCELLED' && canManageTasks(me, p)
 
-/** Owner, MANAGER, ADMIN: confirm, lead days, confirmed quantities, back, cancel / skip, restore, keep. */
+/** Owner, MANAGER, ADMIN: confirm (with the quantities), lead days, confirmed quantities, back, cancel / skip, restore, keep. */
 export const canDecideProduction = (me: Actor | null | undefined, p: ProposalLike) => p.status !== 'CANCELLED' && canEditProposal(me, p)
 
 export function productionPerms(me: Actor | null | undefined, p: ProposalLike): ProductionPerms {
   return { canWork: canWorkProduction(me, p), canDecide: canDecideProduction(me, p) }
 }
 
-/** CANCELLED → nobody; PENDING → team; confirmed → owner / manager (production started on that number). */
+/** A confirmed SKU's quantity (owner / manager); a pending SKU gets its quantity in the confirm dialog only. */
 export function canEditQuantity(status: ProductionStatus, perms: ProductionPerms): boolean {
-  if (status === 'CANCELLED') return false
-  return status === 'PENDING' ? perms.canWork : perms.canDecide
+  return isConfirmedStatus(status) && perms.canDecide
 }
 
 export interface ProductionRowActions {
@@ -660,7 +704,10 @@ export interface ProductionRowActions {
   advanceTo: ProductionStatus | null
   /** The step back (owner / manager). */
   backTo: ProductionStatus | null
+  /** Any date this viewer may edit: produced / delivered (team, once recorded) or the need date (editNeededOn). */
   editDates: boolean
+  /** "วันที่ต้องการสินค้า" of a SKU not delivered yet (owner / manager, like lead days). */
+  editNeededOn: boolean
   /** Cancel a confirmed SKU (IN_PRODUCTION / PRODUCED). */
   cancel: boolean
   /** "ไม่ผลิต" a passed PENDING SKU. */
@@ -674,11 +721,13 @@ export interface ProductionRowActions {
 export function productionRowActions(row: Pick<ProductionRowCore, 'status' | 'item' | 'needsReview' | 'passed'>, perms: ProductionPerms): ProductionRowActions {
   const { status } = row
   const { canWork, canDecide } = perms
+  const editNeededOn = canDecide && (status === 'IN_PRODUCTION' || status === 'PRODUCED')
   return {
     editQuantity: canEditQuantity(status, perms),
     advanceTo: canWork ? (NEXT_PRODUCTION[status] ?? null) : null,
     backTo: canDecide ? (PREV_PRODUCTION[status] ?? null) : null,
-    editDates: canWork && (status === 'PRODUCED' || status === 'DELIVERED'),
+    editDates: (canWork && (status === 'PRODUCED' || status === 'DELIVERED')) || editNeededOn,
+    editNeededOn,
     cancel: canDecide && (status === 'IN_PRODUCTION' || status === 'PRODUCED'),
     skip: canDecide && status === 'PENDING' && row.passed,
     restoreTo: canDecide && status === 'CANCELLED' && row.item ? restoreTarget(row.item) : null,

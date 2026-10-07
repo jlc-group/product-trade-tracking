@@ -35,7 +35,7 @@ function CardShell({ className, rows, variant }: { className?: string; rows: num
 export function MonitorSkeleton() {
   return (
     <div className="space-y-4" aria-busy="true" aria-label="กำลังโหลดภาพรวม">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 3xl:grid-cols-6">
         {Array.from({ length: 6 }, (_, i) => (
           <div key={i} className="space-y-3 rounded-xl border bg-card p-4">
             <div className="flex justify-between">

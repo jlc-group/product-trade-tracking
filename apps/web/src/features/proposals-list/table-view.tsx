@@ -77,7 +77,7 @@ export function TableView({ items, list }: { items: ProposalListItem[]; list: Li
                 <TableCell className="hidden pl-4 align-top xl:table-cell">
                   <span className="tabular text-xs leading-5 font-medium text-muted-foreground">{p.code}</span>
                 </TableCell>
-                <TableCell className="max-w-[22rem] min-w-[11rem] pl-4 align-top whitespace-normal xl:pl-2">
+                <TableCell className="max-w-[22rem] min-w-[11rem] pl-4 align-top whitespace-normal xl:pl-2 3xl:max-w-[32rem]">
                   <span className="tabular mb-0.5 block text-[11px] font-medium text-muted-foreground xl:hidden">{p.code}</span>
                   <Link
                     to={proposalHref(p)}
@@ -85,9 +85,9 @@ export function TableView({ items, list }: { items: ProposalListItem[]; list: Li
                   >
                     {p.title}
                   </Link>
-                  <ProductChips products={p.products} className="mt-1.5" chipClassName="max-w-[9rem]" />
+                  <ProductChips products={p.products} className="mt-1.5" chipClassName="max-w-[9rem] 3xl:max-w-[15rem]" />
                 </TableCell>
-                <TableCell className="max-w-[11rem] align-top xl:max-w-[13rem]">
+                <TableCell className="max-w-[11rem] align-top xl:max-w-[13rem] 3xl:max-w-[16rem]">
                   <div className="flex min-w-0 flex-col items-start gap-1.5">
                     <StoresChip stores={p.stores} className="max-w-full" />
                     <ShelfTypeBadge shelfType={p.shelfType} className="max-w-full overflow-hidden 2xl:hidden" />

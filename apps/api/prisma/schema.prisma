@@ -97,7 +97,8 @@ enum RejectReason {
   OTHER
 }
 
-/// Where one SKU of a proposal stands in production ("รอผลิต"). PENDING = a saved draft quantity, not confirmed yet.
+/// Where one SKU of a proposal stands in production ("รอผลิต"). PENDING = not confirmed yet (a row only keeps the
+/// quantity of a confirm that was stepped back; quantities are entered at confirm).
 enum ProductionStatus {
   PENDING
   IN_PRODUCTION
@@ -597,8 +598,8 @@ model ProductionPlan {
   @@map("production_plans")
 }
 
-/// One SKU of a proposal in production; created on the first quantity save, a skip or at confirmation. Drafts and
-/// skips of SKUs removed from the proposal are deleted with that edit; confirmed rows only with the proposal.
+/// One SKU of a proposal in production; created at a skip or at confirmation. Kept quantities and skips of SKUs
+/// removed from the proposal are deleted with that edit; confirmed rows only with the proposal (or its delete).
 model ProductionItem {
   id            String           @id @default(uuid()) @db.Uuid
   proposalId    String           @map("proposal_id") @db.Uuid
@@ -609,8 +610,10 @@ model ProductionItem {
   /// The real press of "ยืนยันเริ่มผลิต" (who / when).
   confirmedAt   DateTime?        @map("confirmed_at") @db.Timestamptz(3)
   confirmedById String?          @map("confirmed_by_id") @db.Uuid
-  /// Business date (Asia/Bangkok) production started; may be earlier than confirmedAt.
+  /// Business date (Asia/Bangkok) production started: the earliest pass of the confirmed set (older rows: a picked date).
   startedOn     DateTime?        @map("started_on") @db.Date
+  /// "วันที่ต้องการสินค้า" picked at confirm: this SKU's delivery due date; null = the plan deadline (rows confirmed before it existed).
+  neededOn      DateTime?        @map("needed_on") @db.Date
   producedOn    DateTime?        @map("produced_on") @db.Date
   producedById  String?          @map("produced_by_id") @db.Uuid
   deliveredOn   DateTime?        @map("delivered_on") @db.Date

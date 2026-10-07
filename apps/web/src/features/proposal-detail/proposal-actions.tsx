@@ -1,4 +1,4 @@
-import { can, canDeleteProposal, canEditProposal, isProposalOwner, STATUS_LABEL, STATUS_ORDER, type ProposalStatus } from '@flowtrade/shared'
+import { can, canDeleteProposal, canEditProposal, isProposalOwner, PRODUCTION_HISTORY_DELETE, productionDeleteBlock, STATUS_LABEL, STATUS_ORDER, type ProposalStatus } from '@flowtrade/shared'
 import { CalendarClockIcon, ChevronDownIcon, CopyIcon, FileDownIcon, Loader2Icon, MoreHorizontalIcon, PencilIcon, Trash2Icon } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
@@ -75,15 +75,24 @@ export function ProposalActions({ proposal }: { proposal: ProposalDetail }) {
   const prod = useProductionSummary(proposal.id).summary
 
   const canEdit = canEditProposal(user, proposal)
-  const canDelete = canDeleteProposal(user, proposal)
+  // Same rules as the server: live production blocks everyone; production that was confirmed and then cancelled
+  // blocks all but an Admin (its history would go with the proposal).
+  const liveProduction = prod?.confirmed ?? 0
+  const pastProduction = prod ? prod.cancelled - prod.skipped : 0
+  const historyBlocked = pastProduction > 0 && !can(user, 'proposal.delete.any')
+  const canDelete = canDeleteProposal(user, proposal) && liveProduction === 0 && !historyBlocked
   const canDuplicate = can(user, 'proposal.create')
   const word = launchWord(proposal.channel)
   const openLeft = proposal.progress.total - proposal.progress.done
-  const deleteBlockedReason = !canDelete
+  const deleteBlockedReason = !canDeleteProposal(user, proposal)
     ? proposal.status !== 'DRAFT' && isProposalOwner(user, proposal)
       ? 'ลบได้เฉพาะงานร่าง — ใช้สถานะ "ยกเลิก" แทน'
       : 'เฉพาะเจ้าของงานร่างหรือ Admin ที่ลบได้'
-    : null
+    : liveProduction > 0
+      ? productionDeleteBlock(liveProduction, proposal.status === 'CANCELLED')
+      : historyBlocked
+        ? PRODUCTION_HISTORY_DELETE
+        : null
   // Opens the printable report in a new tab, so the detail page stays as it was.
   const printHref = `/proposals/${proposal.id}/print`
 

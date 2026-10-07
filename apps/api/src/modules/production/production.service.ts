@@ -1,6 +1,7 @@
 // "รอผลิต": production of the SKUs that passed buyer consideration. Which SKUs are listed is derived on every read
 // from the PASSED presentation tracks (packages/shared/src/production.ts); production_items only holds what people
-// recorded (draft quantity, confirmation, produced / delivered dates, cancel / skip, acknowledgements). Every write
+// recorded (confirmation with its quantity and start, produced / delivered dates, cancel / skip, acknowledgements, a
+// quantity kept from a stepped-back confirm). Every write
 // locks the proposal row first — the same lock presentation writes, task toggles and proposal edits take — so the
 // passed set can't move under a confirm. Each route answers the whole ProductionView.
 import { Injectable } from '@nestjs/common'
@@ -12,7 +13,6 @@ import {
   earliestPassedOn,
   formatQty,
   formatThaiDate,
-  isConfirmedStatus,
   leadDaysError,
   NEXT_PRODUCTION,
   noteError,
@@ -25,7 +25,8 @@ import {
   restoreTarget,
   sameIdSet,
   skuListLabel,
-  startedOnError,
+  defaultNeededOn,
+  neededOnError,
   storeWord,
   todayBangkok,
   type ISODate,
@@ -51,7 +52,7 @@ type Row = ProductionRowCore
 /** Columns a write sets; the same object creates a virtual row or updates a stored one. */
 type ItemData = Pick<
   Prisma.ProductionItemUncheckedCreateInput,
-  'quantity' | 'status' | 'confirmedAt' | 'confirmedById' | 'startedOn' | 'keptAt' | 'keptById' | 'ackStoreIds' | 'cancelledAt' | 'cancelledById' | 'cancelReason'
+  'quantity' | 'status' | 'confirmedAt' | 'confirmedById' | 'startedOn' | 'neededOn' | 'keptAt' | 'keptById' | 'ackStoreIds' | 'cancelledAt' | 'cancelledById' | 'cancelReason'
 >
 
 /** The row moved on since the client loaded the view; the web refetches on any error. */
@@ -131,7 +132,7 @@ export class ProductionService {
     )
   }
 
-  /** An existing row's id, or a new row in `status` (first quantity save, a skip, a confirm of a virtual row). */
+  /** An existing row's id, or a new row in `status` (a skip, a confirm of a virtual row). */
   private async ensureItem(tx: Tx, proposal: Proposal, row: Row, data: ItemData): Promise<string> {
     if (row.item) {
       await tx.productionItem.update({ where: { id: row.item.id }, data })
@@ -156,18 +157,19 @@ export class ProductionService {
 
   // ---------- writes ----------
 
-  /** Draft quantities (team) and confirmed ones (owner / manager); unchanged values are skipped. */
+  /** Quantities of confirmed SKUs (owner / manager); a pending SKU gets its quantity at confirm. Unchanged values are skipped. */
   saveQuantities(user: User, proposalId: string, input: QuantitiesBody): Promise<ProductionView> {
     return this.prisma.$transaction(async (tx) => {
       const { proposal, perms, today, state, now } = await this.open(tx, user, proposalId)
-      const changes: { row: Row; before: number | null; after: number | null }[] = []
+      if (!perms.canDecide) throw forbidden(PERR.confirmedQtyOnly)
+      const changes: { row: Row; before: number | null; after: number }[] = []
       for (const it of input.items) {
         const row = state.derived.rows.find((r) => r.productId === it.productId)
         const sku = state.skuOf(it.productId)
         if (!row) throw stale(PERR.notListed(sku))
         if (row.status === 'CANCELLED') throw stale(PERR.stale(sku))
-        if (row.status !== 'PENDING' && !perms.canDecide) throw forbidden(PERR.confirmedQtyOnly)
-        if (it.quantity === null && row.status !== 'PENDING') throw invalid(PERR.qtyRequired)
+        // The dialog only offers confirmed SKUs: a pending one was stepped back since the client loaded it.
+        if (row.status === 'PENDING') throw stale(PERR.stale(sku))
         const before = row.item?.quantity ?? null
         if (before !== it.before) throw stale(PERR.qtyChanged(sku))
         if (before !== it.quantity) changes.push({ row, before, after: it.quantity })
@@ -179,7 +181,7 @@ export class ProductionService {
         const data: ItemData = { quantity: after }
         // A confirmed number decided again for the stores passing now acknowledges a change of those stores.
         const cur = row.passedStores.map((s) => s.store.id)
-        if (isConfirmedStatus(row.status) && cur.length > 0) {
+        if (cur.length > 0) {
           data.ackStoreIds = cur
           if (row.needsReview) Object.assign(data, { keptAt: now, keptById: user.id })
         }
@@ -189,7 +191,6 @@ export class ProductionService {
       await this.events(tx, proposal.id, user.id, now, events)
       const parts = changes.map(({ row, before, after }) => {
         const sku = state.skuOf(row.productId)
-        if (after === null) return `${sku} ล้างจำนวน`
         return before === null ? `${sku} ${pieces(after)}` : `${sku} ${formatQty(before)} → ${pieces(after)}`
       })
       const more = parts.length > SHOWN_SKUS ? ` และอีก ${parts.length - SHOWN_SKUS} SKU` : ''
@@ -237,9 +238,11 @@ export class ProductionService {
         const sent = input.items.find((i) => i.productId === row.productId)!
         if ((row.item?.quantity ?? null) !== sent.saved) throw stale(PERR.qtyChanged(state.skuOf(row.productId)))
       }
-      const startedOn = input.startedOn ?? today
-      const problem = startedOnError(startedOn, earliestPassedOn(rows), today)
+      const neededOn = input.neededOn ?? defaultNeededOn(summary.planDeadline, today, proposal.targetDate)
+      const problem = neededOnError(neededOn, today, proposal.targetDate)
       if (problem) throw invalid(problem)
+      // Production can't be finished before the buyer passed it: the start is the set's earliest pass.
+      const startedOn = earliestPassedOn(rows) ?? today
 
       const events: EventInput[] = []
       let total = 0
@@ -253,19 +256,19 @@ export class ProductionService {
           confirmedAt: now,
           confirmedById: user.id,
           startedOn: fromDateOnly(startedOn),
+          neededOn: fromDateOnly(neededOn),
           keptAt: null,
           keptById: null,
           ackStoreIds: row.passedStores.map((s) => s.store.id),
         })
         if (before !== quantity) events.push({ itemId, kind: 'QUANTITY', fromStatus: 'PENDING', toStatus: 'PENDING', quantityBefore: before, quantityAfter: quantity })
-        events.push({ itemId, kind: 'CONFIRM', fromStatus: 'PENDING', toStatus: 'IN_PRODUCTION', date: startedOn, quantityBefore: before, quantityAfter: quantity })
+        events.push({ itemId, kind: 'CONFIRM', fromStatus: 'PENDING', toStatus: 'IN_PRODUCTION', date: startedOn, quantityBefore: before, quantityAfter: quantity, detail: { neededOn } })
       }
       await this.events(tx, proposal.id, user.id, now, events)
       const skus = skuListLabel(rows.map((r) => state.skuOf(r.productId)))
-      const deadline = formatThaiDate(summary.deadline)
-      const start = startedOn !== today ? ` · เริ่มผลิต ${formatThaiDate(startedOn)}` : ''
-      await this.log(tx, user, proposal, 'confirm', `ยืนยันเริ่มผลิต ${rows.length} SKU (${skus}) รวม ${pieces(total)} · ส่งภายใน ${deadline}${start}`)
-      await this.notifyTeam(tx, user, proposal, `ยืนยันเริ่มผลิต ${rows.length} SKU แล้ว · ส่งภายใน ${deadline}`)
+      const need = formatThaiDate(neededOn)
+      await this.log(tx, user, proposal, 'confirm', `ยืนยันเริ่มผลิต ${rows.length} SKU (${skus}) รวม ${pieces(total)} · ต้องการสินค้า ${need}`)
+      await this.notifyTeam(tx, user, proposal, `ยืนยันเริ่มผลิต ${rows.length} SKU แล้ว · ต้องการสินค้า ${need}`)
       return this.view(tx, proposal, today)
     })
   }
@@ -293,7 +296,6 @@ export class ProductionService {
         if (problem) throw invalid(rows.length > 1 ? `${state.skuOf(row.productId)}: ${problem}` : problem)
       }
 
-      const { deadline } = state.derived.summary
       const deliveredOn = both ? input.deliveredOn! : to === 'DELIVERED' ? input.date : null
       const events: EventInput[] = []
       for (const row of rows) {
@@ -301,7 +303,8 @@ export class ProductionService {
           to === 'PRODUCED'
             ? { status: both ? 'DELIVERED' : 'PRODUCED', producedOn: fromDateOnly(input.date), producedById: user.id }
             : { status: 'DELIVERED' }
-        if (deliveredOn) Object.assign(data, { deliveredOn: fromDateOnly(deliveredOn), deliveredById: user.id, dueOn: fromDateOnly(deadline) })
+        // Delivery freezes the row's own due date ("วันที่ต้องการสินค้า", else the plan deadline).
+        if (deliveredOn) Object.assign(data, { deliveredOn: fromDateOnly(deliveredOn), deliveredById: user.id, dueOn: fromDateOnly(row.dueOn) })
         await tx.productionItem.update({ where: { id: row.item!.id }, data })
         events.push({ itemId: row.item!.id, kind: 'ADVANCE', fromStatus: input.from, toStatus: to, date: input.date })
         if (both) events.push({ itemId: row.item!.id, kind: 'ADVANCE', fromStatus: 'PRODUCED', toStatus: 'DELIVERED', date: deliveredOn })
@@ -309,7 +312,8 @@ export class ProductionService {
       await this.events(tx, proposal.id, user.id, now, events)
 
       const skus = `${rows.length} SKU (${skuListLabel(rows.map((r) => state.skuOf(r.productId)))})`
-      const late = deliveredOn && deliveredOn > deadline ? ` · ช้ากว่ากำหนด ${diffDays(deadline, deliveredOn)} วัน` : ''
+      const lateDays = deliveredOn ? Math.max(0, ...rows.map((r) => diffDays(r.dueOn, deliveredOn))) : 0
+      const late = lateDays > 0 ? ` · ช้ากว่ากำหนด ${lateDays} วัน` : ''
       if (both) {
         await this.log(tx, user, proposal, 'delivered', `บันทึกผลิตเสร็จและส่งเข้าคลัง/${word}แล้ว ${skus} · ผลิตเสร็จ ${formatThaiDate(input.date)} · ส่ง ${formatThaiDate(deliveredOn!)}${late}`)
       } else if (to === 'PRODUCED') {
@@ -325,7 +329,7 @@ export class ProductionService {
     })
   }
 
-  /** One step back (owner / manager); IN_PRODUCTION → PENDING = ย้อนกลับเป็น “รอยืนยัน” (the quantity stays as a draft). */
+  /** One step back (owner / manager); IN_PRODUCTION → PENDING = ย้อนกลับเป็น “รอยืนยัน” (the quantity is kept and prefilled at the next confirm). */
   back(user: User, proposalId: string, productId: string, input: BackBody): Promise<ProductionView> {
     return this.prisma.$transaction(async (tx) => {
       const { proposal, perms, today, state, now } = await this.open(tx, user, proposalId)
@@ -344,7 +348,7 @@ export class ProductionService {
         await tx.productionItem.update({ where: { id: item.id }, data: { status: to, producedOn: null, producedById: null } })
       } else {
         cleared = item.startedOn
-        const reset = { status: to, confirmedAt: null, confirmedById: null, startedOn: null, keptAt: null, keptById: null, ackStoreIds: [] }
+        const reset = { status: to, confirmedAt: null, confirmedById: null, startedOn: null, neededOn: null, keptAt: null, keptById: null, ackStoreIds: [] }
         await tx.productionItem.update({ where: { id: item.id }, data: reset })
       }
       // A draft of a SKU no longer in the proposal would be invisible and block deleting the product: drop it (and its log).
@@ -359,17 +363,23 @@ export class ProductionService {
     })
   }
 
-  /** Produced / delivered dates of a PRODUCED / DELIVERED SKU (team); the frozen deadline (dueOn) stays. */
+  /**
+   * Produced / delivered dates once recorded (team), and "วันที่ต้องการสินค้า" of a SKU not yet delivered (owner /
+   * manager: it is the due date, like lead days); a frozen dueOn stays.
+   */
   editDates(user: User, proposalId: string, productId: string, input: DatesBody): Promise<ProductionView> {
     return this.prisma.$transaction(async (tx) => {
-      const { proposal, today, state, now } = await this.open(tx, user, proposalId)
+      const { proposal, perms, today, state, now } = await this.open(tx, user, proposalId)
+      if (input.neededOn !== undefined && !perms.canDecide) throw forbidden(PERR.neededOnly)
       const row = this.rowOf(state, productId)
       const sku = state.skuOf(productId)
       const item = row.item ?? { status: row.status, startedOn: null, producedOn: null, deliveredOn: null }
-      const errors = datesErrors(item, input, today)
-      const problem = errors.producedOn ?? errors.deliveredOn
+      const errors = datesErrors(item, input, today, proposal.targetDate)
+      const problem = errors.neededOn ?? errors.producedOn ?? errors.deliveredOn
       if (problem) throw invalid(problem, errors as Record<string, string>)
-      const changed: Partial<Record<'producedOn' | 'deliveredOn', [ISODate | null, ISODate]>> = {}
+      const changed: Partial<Record<'neededOn' | 'producedOn' | 'deliveredOn', [ISODate | null, ISODate]>> = {}
+      // A row confirmed before the field existed was due on the plan deadline: that is its "before".
+      if (input.neededOn !== undefined && input.neededOn !== row.dueOn) changed.neededOn = [row.dueOn, input.neededOn]
       if (input.producedOn !== undefined && input.producedOn !== item.producedOn) changed.producedOn = [item.producedOn, input.producedOn]
       if (input.deliveredOn !== undefined && input.deliveredOn !== item.deliveredOn) changed.deliveredOn = [item.deliveredOn, input.deliveredOn]
       if (!row.item || Object.keys(changed).length === 0) return this.view(tx, proposal, today)
@@ -377,13 +387,14 @@ export class ProductionService {
       await tx.productionItem.update({
         where: { id: row.item.id },
         data: {
+          ...(changed.neededOn ? { neededOn: fromDateOnly(changed.neededOn[1]) } : {}),
           ...(changed.producedOn ? { producedOn: fromDateOnly(changed.producedOn[1]) } : {}),
           ...(changed.deliveredOn ? { deliveredOn: fromDateOnly(changed.deliveredOn[1]) } : {}),
         },
       })
       await this.events(tx, proposal.id, user.id, now, [{ itemId: row.item.id, kind: 'DATES', fromStatus: row.status, toStatus: row.status, detail: changed }])
       const part = (label: string, pair?: [ISODate | null, ISODate]) => (pair ? [`${label} ${formatThaiDate(pair[0])} → ${formatThaiDate(pair[1])}`] : [])
-      await this.log(tx, user, proposal, 'dates', `แก้วันที่ ${sku}: ${[...part('ผลิตเสร็จ', changed.producedOn), ...part('ส่ง', changed.deliveredOn)].join(', ')}`)
+      await this.log(tx, user, proposal, 'dates', `แก้วันที่ ${sku}: ${[...part('ต้องการสินค้า', changed.neededOn), ...part('ผลิตเสร็จ', changed.producedOn), ...part('ส่ง', changed.deliveredOn)].join(', ')}`)
       return this.view(tx, proposal, today)
     })
   }

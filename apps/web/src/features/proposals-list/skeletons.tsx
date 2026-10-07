@@ -67,9 +67,9 @@ function TableSkeleton() {
 function KanbanSkeleton() {
   return (
     <div className="-mx-4 overflow-hidden px-4 md:mx-0 md:px-0">
-      <div className="flex w-max gap-3">
+      <div className="flex w-max min-w-full gap-3">
         {[3, 2, 1, 2, 1].map((n, i) => (
-          <div key={i} className="w-[17.5rem] space-y-2 rounded-xl bg-muted/60 p-2 sm:w-72">
+          <div key={i} className="w-[17.5rem] space-y-2 rounded-xl bg-muted/60 p-2 sm:w-72 xl:grow">
             <div className="flex items-center gap-2 px-1 py-1.5">
               <Skeleton className="h-4 w-24 bg-card" />
               <Skeleton className="ml-auto h-5 w-7 rounded-full bg-card" />
@@ -107,7 +107,7 @@ function GridSkeleton() {
             <Skeleton className="h-5 w-32" />
             <Skeleton className="h-5 w-16" />
           </div>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 3xl:grid-cols-4 4xl:grid-cols-5">
             {Array.from({ length: n }, (_, j) => (
               <CardSkeleton key={j} />
             ))}

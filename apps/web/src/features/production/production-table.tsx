@@ -1,72 +1,24 @@
-import { formatQty, type ProductionStatus } from '@flowtrade/shared'
+import type { ProductionStatus } from '@flowtrade/shared'
 import { PackageCheckIcon, TruckIcon } from 'lucide-react'
 import { useState } from 'react'
-import { toast } from 'sonner'
-import { useConfirm } from '@/components/common/misc'
 import { Button } from '@/components/ui/button'
 import { MoreToggle } from '@/features/home/panel'
 import { cn } from '@/lib/utils'
-import { useSaveQuantities } from './hooks'
-import { savedQty } from './model'
 import { COLS, ProductionRowView, ROW } from './production-row'
-import { SaveBar } from './save-bar'
 import { StatusChip } from './status-chip'
-import { focusQty } from './utils'
-import type { DraftsModel, ProductionModel, ProductionTabAction } from './types'
+import type { ProductionModel, ProductionTabAction } from './types'
 
 const COUNTED: ProductionStatus[] = ['PENDING', 'IN_PRODUCTION', 'PRODUCED', 'DELIVERED']
 
-/** "สินค้าที่ผ่าน Buyer": toolbar with counts and bulk steps, one row per SKU, the cancelled fold and the save bar (§5.9). */
-export function ProductionTable({ model, drafts, onAction }: { model: ProductionModel; drafts: DraftsModel; onAction: (a: ProductionTabAction) => void }) {
+/** "สินค้าที่ผ่าน Buyer": toolbar with counts and bulk steps, one row per SKU (nothing typed in the table) and the cancelled fold (§5.9). */
+export function ProductionTable({ model, onAction }: { model: ProductionModel; onAction: (a: ProductionTabAction) => void }) {
   const s = model.summary
   const word = model.storeWord
-  const save = useSaveQuantities(model.proposal)
-  const [confirm, confirmDialog] = useConfirm()
   const [showCancelled, setShowCancelled] = useState(false)
   const counts: Record<ProductionStatus, number> = { PENDING: s.pending, IN_PRODUCTION: s.inProduction, PRODUCED: s.produced, DELIVERED: s.delivered, CANCELLED: s.cancelled }
   const cancelled = model.cancelledRows
   const skippedAll = cancelled.every((r) => r.skipped)
   const skippedNone = cancelled.every((r) => !r.skipped)
-
-  async function saveQuantities() {
-    if (save.isPending) return
-    if (drafts.invalidCount > 0) {
-      const first = drafts.dirtyRows.find((r) => drafts.errorOf(r))
-      if (first) focusQty(first.productId)
-      toast.error('แก้ช่องที่ไม่ถูกต้องก่อน')
-      return
-    }
-    const rows = drafts.dirtyRows
-    if (rows.length === 0) return
-    const confirmed = rows.filter((r) => r.status !== 'PENDING')
-    if (confirmed.length > 0) {
-      const ok = await confirm({
-        title: 'แก้จำนวนผลิตที่ยืนยันแล้ว?',
-        description: (
-          <span className="grid gap-1">
-            {confirmed.map((r) => (
-              <span key={r.productId} className="tabular block">
-                {r.product.sku}: {formatQty(savedQty(r) ?? 0)} → {formatQty(drafts.confirmQty(r) ?? 0)} ชิ้น
-              </span>
-            ))}
-            <span className="block">ทีมผลิตอาจเริ่มผลิตตามจำนวนเดิมไปแล้ว</span>
-          </span>
-        ),
-        confirmLabel: 'บันทึก',
-        cancelLabel: 'ปิด',
-      })
-      if (!ok) return
-    }
-    try {
-      await save.mutateAsync({ items: rows.map((r) => ({ productId: r.productId, quantity: drafts.confirmQty(r), before: savedQty(r) })) })
-      drafts.clear(rows.map((r) => r.productId))
-      toast.success('บันทึกจำนวนผลิตแล้ว')
-    } catch {
-      // error already toasted by the hook
-    }
-  }
-
-  const onSave = () => void saveQuantities()
 
   return (
     <section aria-labelledby="production-table-title" className="@container overflow-clip rounded-xl border bg-card">
@@ -108,7 +60,7 @@ export function ProductionTable({ model, drafts, onAction }: { model: Production
           </div>
           <ul className="divide-y border-t @3xl:col-span-6 @3xl:grid @3xl:grid-cols-subgrid @3xl:border-t-0">
             {model.rows.map((r) => (
-              <ProductionRowView key={r.productId} row={r} model={model} drafts={drafts} onAction={onAction} onSave={onSave} />
+              <ProductionRowView key={r.productId} row={r} model={model} onAction={onAction} />
             ))}
           </ul>
         </div>
@@ -127,16 +79,13 @@ export function ProductionTable({ model, drafts, onAction }: { model: Production
             <div className={COLS}>
               <ul className="divide-y border-t @3xl:col-span-6 @3xl:grid @3xl:grid-cols-subgrid">
                 {cancelled.map((r) => (
-                  <ProductionRowView key={r.productId} row={r} model={model} drafts={drafts} onAction={onAction} onSave={onSave} />
+                  <ProductionRowView key={r.productId} row={r} model={model} onAction={onAction} />
                 ))}
               </ul>
             </div>
           )}
         </div>
       )}
-
-      <SaveBar drafts={drafts} saving={save.isPending} onSave={onSave} />
-      {confirmDialog}
     </section>
   )
 }

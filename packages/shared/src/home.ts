@@ -201,14 +201,14 @@ export interface ProductionSlot {
 
 /**
  * My "รอผลิต" steps on one involved proposal (`mine`), IN_PROGRESS / COMPLETED only: confirmProduction (owner or an
- * involved MANAGER/ADMIN, pending SKUs) and fillQuantity (members without that right, pending SKUs without a quantity),
- * both bucketed by the deadline or 'next'; deliverProduction (owner + members) once the deadline is within
- * PRODUCTION_SOON_DAYS; reviewProduction (owner / manager, SKUs needing review) in 'next'.
+ * involved MANAGER/ADMIN, pending SKUs; the quantities are entered in its dialog) bucketed by the deadline or 'next';
+ * deliverProduction (owner + members) once the deadline is within PRODUCTION_SOON_DAYS; reviewProduction (owner /
+ * manager, SKUs needing review) in 'next'.
  */
 export function productionAgendaFor(
   p: Pick<ProposalBrief, 'status' | 'ownerId' | 'memberIds'>,
   mine: boolean,
-  summary: Pick<ProductionSummary, 'deadline' | 'pending' | 'missingQty' | 'inProduction' | 'produced' | 'flagged'> | null | undefined,
+  summary: Pick<ProductionSummary, 'deadline' | 'pending' | 'inProduction' | 'produced' | 'flagged'> | null | undefined,
   me: Pick<User, 'id' | 'role'>,
   today: ISODate,
 ): ProductionSlot[] {
@@ -218,8 +218,6 @@ export function productionAgendaFor(
   const decides = canEditProposal(me, p)
   const onTeam = p.ownerId === me.id || p.memberIds.includes(me.id)
   if (decides && summary.pending > 0) out.push({ action: 'confirmProduction', bucket: taskBucket(deadline, today) ?? 'next', date: deadline, count: summary.pending })
-  else if (!decides && onTeam && summary.pending > 0 && summary.missingQty > 0)
-    out.push({ action: 'fillQuantity', bucket: taskBucket(deadline, today) ?? 'next', date: deadline, count: summary.missingQty })
   const making = summary.inProduction + summary.produced
   const soon = taskBucket(deadline, today)
   if (onTeam && making > 0 && soon && deadline <= addDays(today, PRODUCTION_SOON_DAYS)) out.push({ action: 'deliverProduction', bucket: soon, date: deadline, count: making })
@@ -232,8 +230,6 @@ export function productionRowsFor<I extends ProductionItemCore>(action: Producti
   switch (action) {
     case 'confirmProduction':
       return rows.filter((r) => r.status === 'PENDING')
-    case 'fillQuantity':
-      return rows.filter((r) => r.status === 'PENDING' && r.item?.quantity == null)
     case 'deliverProduction':
       return rows.filter((r) => r.status === 'IN_PRODUCTION' || r.status === 'PRODUCED')
     case 'reviewProduction':
@@ -244,8 +240,8 @@ export function productionRowsFor<I extends ProductionItemCore>(action: Producti
 /** HomeProject.production: null when nothing passed or every row is cancelled / skipped. */
 export function toProductionBrief(summary: ProductionSummary | null | undefined): ProductionBrief | null {
   if (!summary || summary.state === 'NONE' || summary.state === 'CANCELLED') return null
-  const { state, deadline, daysToDeadline, pending, missingQty, inProduction, produced, delivered, confirmed, undelivered, flagged, overdueDays } = summary
-  return { state, deadline, daysToDeadline, pending, missingQty, inProduction, produced, delivered, confirmed, undelivered, flagged, overdueDays }
+  const { state, deadline, daysToDeadline, pending, inProduction, produced, delivered, confirmed, undelivered, flagged, overdueDays } = summary
+  return { state, deadline, daysToDeadline, pending, inProduction, produced, delivered, confirmed, undelivered, flagged, overdueDays }
 }
 
 // ---------- sort ----------
@@ -259,26 +255,24 @@ const TODAY_RANK: Record<Step, number> = {
   confirmPresented: 3,
   schedule: 4,
   confirmProduction: 5,
-  fillQuantity: 6,
-  deliverProduction: 7,
-  createPackage: 8,
-  closeOut: 9,
-  reviewProduction: 10,
-  task: 11,
+  deliverProduction: 6,
+  createPackage: 7,
+  closeOut: 8,
+  reviewProduction: 9,
+  task: 10,
 }
 const NEXT_RANK: Record<Step, number> = {
   confirmProduction: 0,
-  fillQuantity: 1,
-  reviewProduction: 2,
-  createPackage: 3,
-  sendInfo: 4,
-  schedule: 5,
-  followUp: 6,
-  closeOut: 7,
-  present: 8,
-  confirmPresented: 9,
-  deliverProduction: 10,
-  task: 11,
+  reviewProduction: 1,
+  createPackage: 2,
+  sendInfo: 3,
+  schedule: 4,
+  followUp: 5,
+  closeOut: 6,
+  present: 7,
+  confirmPresented: 8,
+  deliverProduction: 9,
+  task: 10,
 }
 
 const stepOf = (i: AgendaItem): Step => (i.kind === 'task' ? 'task' : i.action)
@@ -306,8 +300,8 @@ function ties(a: AgendaItem, b: AgendaItem) {
 
 /**
  * Agenda order: bucket, then per bucket — overdue: mine before team, date, ties; today: buyer steps →
- * confirmProduction → fillQuantity → deliverProduction → proposal steps → reviewProduction → tasks; week: date, ties;
- * next: confirmProduction → fillQuantity → reviewProduction → createPackage → sendInfo (dated first) → schedule →
+ * confirmProduction → deliverProduction → proposal steps → reviewProduction → tasks; week: date, ties;
+ * next: confirmProduction → reviewProduction → createPackage → sendInfo (dated first) → schedule →
  * followUp → closeOut; waiting: date (undated last).
  */
 export function compareAgenda(a: AgendaItem, b: AgendaItem): number {

@@ -85,7 +85,7 @@ export function Callout({
   children,
   className,
 }: {
-  tone?: 'info' | 'warning' | 'success' | 'brand'
+  tone?: 'info' | 'warning' | 'danger' | 'success' | 'brand'
   icon?: ReactNode
   title?: ReactNode
   children?: ReactNode
@@ -94,11 +94,12 @@ export function Callout({
   const tones = {
     info: 'bg-info-soft text-info border-info/20',
     warning: 'bg-warning-soft text-warning-foreground border-warning/40',
+    danger: 'bg-danger-soft text-danger border-danger/25',
     success: 'bg-success-soft text-success border-success/25',
     brand: 'bg-brand-soft text-brand border-brand/20',
   }
   return (
-    <div role={tone === 'warning' ? 'alert' : 'note'} className={cn('flex gap-3 rounded-xl border px-4 py-3 text-sm', tones[tone], className)}>
+    <div role={tone === 'warning' || tone === 'danger' ? 'alert' : 'note'} className={cn('flex gap-3 rounded-xl border px-4 py-3 text-sm', tones[tone], className)}>
       {icon && <span className="mt-0.5 shrink-0 [&_svg]:size-4">{icon}</span>}
       <div className="min-w-0 space-y-0.5">
         {title && <p className="font-medium">{title}</p>}

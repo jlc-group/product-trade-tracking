@@ -4,13 +4,17 @@ import { Injectable } from '@nestjs/common'
 import {
   addDays,
   autoProposalTitle,
+  can,
   canDeleteProposal,
   canEditProposal,
   canEditProposalStores,
   clipProposalTitle,
+  CONFIRMED_STATUSES,
   diffDays,
   normalizePlan,
   planFromTemplate,
+  PRODUCTION_HISTORY_DELETE,
+  productionDeleteBlock,
   readDetailFields,
   STATUS_LABEL,
   storeNamesLabel,
@@ -445,10 +449,12 @@ export class ProposalsService {
       await lockProposal(tx, id)
       const proposal = await this.access.loadVisible(tx, user, id)
       if (!canDeleteProposal(user, proposal)) throw forbidden('ลบได้เฉพาะงานร่างของตัวเอง — งานที่เริ่มแล้วให้เปลี่ยนสถานะเป็น "ยกเลิก" แทน')
-      if ((await tx.productionItem.count({ where: { proposalId: id, confirmedAt: { not: null } } })) > 0) {
-        const hint = proposal.status === 'CANCELLED' ? 'งานที่ยกเลิกแล้วจะเก็บประวัติการผลิตไว้' : 'เปลี่ยนสถานะเป็น “ยกเลิก” แทน'
-        throw conflict(`มีสินค้าที่ยืนยันผลิตแล้ว ลบไม่ได้ — ${hint}`, 'IN_USE')
-      }
+      // Live production blocks everyone. Cancelled production doesn't block an Admin (its history goes with the
+      // proposal), but an owner may not erase production history by stepping SKUs back and cancelling them.
+      const live = await tx.productionItem.count({ where: { proposalId: id, status: { in: CONFIRMED_STATUSES } } })
+      if (live > 0) throw conflict(productionDeleteBlock(live, proposal.status === 'CANCELLED'), 'IN_USE')
+      if (!can(user, 'proposal.delete.any') && (await tx.productionItem.count({ where: { proposalId: id, confirmedAt: { not: null } } })) > 0)
+        throw conflict(PRODUCTION_HISTORY_DELETE, 'IN_USE')
       const taskCount = await tx.task.count({ where: { proposalId: id } })
       // Members, products, tasks (+ assignees), comments, presentation and production rows cascade in the database.
       await tx.proposal.delete({ where: { id } })

@@ -211,7 +211,7 @@ function proposalItems(me: string, projects: ProjectRow[]): ProposalAgendaItem[]
   })
 }
 
-/** My "รอผลิต" steps (productionAgendaFor): confirm / fill quantities / deliver / review, never 'waiting'. */
+/** My "รอผลิต" steps (productionAgendaFor): confirm / deliver / review, never 'waiting'. */
 function productionItems(user: User, projects: ProjectRow[], today: ISODate): ProductionAgendaItem[] {
   return projects.flatMap((p) => {
     const d = p.production
@@ -225,7 +225,6 @@ function productionItems(user: User, projects: ProjectRow[], today: ISODate): Pr
         proposal: p.brief,
         action: slot.action,
         count: slot.count,
-        missingQty: d.summary.missingQty,
         deadline: d.summary.deadline,
         overdueDays: d.summary.overdueDays,
         stores: passedStoresOf(productionRowsFor(slot.action, d.rows)),

@@ -67,7 +67,8 @@ function AdvanceForm({ model, to, initialIds, onDone }: { model: ProductionModel
     to === 'PRODUCED' && alsoDeliver ? firstError(rows, (r) => advanceDateError('DELIVERED', deliveredOn, { startedOn: r.item?.startedOn ?? null, producedOn: date }, today, PROD_ERR)) : null
   const minDate = to === 'PRODUCED' ? latest(rows.map((r) => r.item?.startedOn)) : latest(rows.map((r) => r.item?.producedOn))
   const deliveredDate = to === 'DELIVERED' ? date : alsoDeliver ? deliveredOn : null
-  const lateDays = deliveredDate && deliveredDate > model.summary.deadline ? diffDays(model.summary.deadline, deliveredDate) : 0
+  // Each SKU against its own due date ("วันที่ต้องการสินค้า", else the plan deadline).
+  const lateDays = deliveredDate ? Math.max(0, ...rows.map((r) => diffDays(r.dueOn, deliveredDate))) : 0
   const title = to === 'PRODUCED' ? 'บันทึกผลิตเสร็จ' : `บันทึกส่งเข้าคลัง/${word}แล้ว`
 
   const toggle = (pid: string, on: boolean) => setChecked((prev) => (on ? [...prev, pid] : prev.filter((x) => x !== pid)))

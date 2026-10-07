@@ -339,7 +339,7 @@ export class PresentationService {
       if (input.events.some((e) => e.kind === 'WITHDRAWN') && !canFinalize) throw forbidden(ERR.finalOnly)
       if (input.events.some((e) => e.kind === 'REPITCH')) await this.assertGate(tx, proposal.id)
       const steps = await this.toStageEvents(tx, proposal.id, input.events)
-      // Same result for several stores: "ยังไม่ทราบผล", or "ผ่าน" with every SKU.
+      // Same result for several stores: "นำเสนอแล้ว", or "ผ่าน" with every SKU.
       if (input.trackIds.length > 1 && !bulkStepAllowed(steps)) throw invalid(ERR.bulk(word))
       // "Every SKU" is stored as the explicit list: a SKU added to the proposal later was not seen by this buyer.
       const events = steps.map((e) => (e.kind === 'PASSED' && e.acceptedProductIds === null ? { ...e, acceptedProductIds: [...proposal.productIds] } : e))

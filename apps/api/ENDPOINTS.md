@@ -66,25 +66,30 @@ Validation and error messages are Thai and are shown to users as-is. The web cli
 - **Production** ("รอผลิต", `packages/shared/src/production.ts`): which SKUs are listed is derived on every read, never
   stored — a SKU accepted by ≥ 1 in-proposal store whose track is PASSED (`acceptedProductIdsOf`; a partial pass adds
   only its SKUs), with those `passedStores` (proposal store order, each with its pass date). `production_items` holds
-  only what people recorded, one row per (proposal, SKU): a draft quantity (`PENDING`), the confirmation
-  (`IN_PRODUCTION`: `confirmedAt` / `confirmedById` = the real press, `startedOn` = production start, ≤ today and not
-  before the earliest pass of the confirmed SKUs, default today), `PRODUCED` (`producedOn`), `DELIVERED`
-  (`deliveredOn`, plus `dueOn` = the deadline frozen at delivery, so a later lead-day / launch change never re-grades
+  only what people recorded, one row per (proposal, SKU): a quantity kept from a confirm that was stepped back
+  (`PENDING`; new quantities are only entered at confirm), the confirmation (`IN_PRODUCTION`: `confirmedAt` /
+  `confirmedById` = the real press, `neededOn` = "วันที่ต้องการสินค้า", this SKU's delivery due date picked at confirm —
+  today … the launch date (only today once the launch has passed), default the plan deadline clamped into that range;
+  `startedOn` = the earliest pass of the confirmed set, set by the server; rows confirmed before `neededOn` existed
+  have it null and are due on the plan deadline), `PRODUCED` (`producedOn`), `DELIVERED`
+  (`deliveredOn`, plus `dueOn` = the row's due date frozen at delivery, so a later lead-day / launch change never re-grades
   it), `CANCELLED` (a confirmed SKU: "ยกเลิกผลิต"; a never-confirmed one: "ไม่ผลิต", a skip), and `ackStoreIds` = the
   passing stores the confirmed quantity was decided for. Every route answers the whole `ProductionView`
   (`{ version: 1, proposalId, today, targetDate, plan, rows, summary, pendingIds, events }`; rows in proposal SKU
   order, then SKUs no longer in the proposal by SKU; `events` newest first, ≤ 200). Shown rows: every passed SKU
   (status from its row, `PENDING` without one), every confirmed SKU even when it no longer passes (flagged, never
-  dropped) and confirmed-then-cancelled SKUs; a draft or a skip of a SKU that no longer passes is hidden (kept in the
+  dropped) and confirmed-then-cancelled SKUs; a kept quantity or a skip of a SKU that no longer passes is hidden (kept in the
   DB; it comes back with the pass). Flags of confirmed rows: `NOT_IN_PROPOSAL`, `NOT_PASSED` (no store passes it any
   more), `STORES_CHANGED` (passing stores ≠ `ackStoreIds`); `needsReview` = flag and not yet acknowledged for exactly
   the current stores (`keep`, or an owner / manager quantity save on a SKU that still passes). **Deadline** =
   `targetDate − leadDays` (`production_plans.lead_days`, 0–90, default 14 without a row), so rescheduling the launch
-  moves it. Late: undelivered after the deadline → `OVERDUE`; delivered after its `dueOn` → `DELIVERED_LATE`.
+  moves it. Each row's due date (`row.dueOn`) = its frozen `dueOn` once delivered, else its `neededOn`, else that plan
+  deadline; `summary.deadline` = the earliest due of the rows not delivered yet (`planDeadline` when none). Late:
+  undelivered after its due date → `OVERDUE`; delivered after its `dueOn` → `DELIVERED_LATE`.
   **Who**: view = can view the proposal (else 404); team = `canWorkProduction` (owner, members, MANAGER, ADMIN; else
-  403 `เฉพาะเจ้าของและทีมงานบันทึกการผลิตได้`): draft quantities, the note, advance, dates; decide =
-  `canDecideProduction` (owner, MANAGER, ADMIN): confirm (403 `ยืนยันเริ่มผลิตได้เฉพาะเจ้าของโปรเจกต์หรือผู้จัดการ`),
-  lead days (403 `ตั้ง deadline ได้เฉพาะเจ้าของโปรเจกต์หรือผู้จัดการ`), quantities of confirmed SKUs (403
+  403 `เฉพาะเจ้าของและทีมงานบันทึกการผลิตได้`): the note, advance, produced / delivered dates; decide =
+  `canDecideProduction` (owner, MANAGER, ADMIN): confirm with the quantities (403 `ยืนยันเริ่มผลิตได้เฉพาะเจ้าของโปรเจกต์หรือผู้จัดการ`),
+  lead days (403 `ตั้ง deadline ได้เฉพาะเจ้าของโปรเจกต์หรือผู้จัดการ`), `neededOn` edits (403 `แก้วันที่ต้องการสินค้าได้เฉพาะเจ้าของโปรเจกต์หรือผู้จัดการ`), quantities of confirmed SKUs (403
   `จำนวนผลิตที่ยืนยันแล้วแก้ได้เฉพาะเจ้าของโปรเจกต์หรือผู้จัดการ`), back, cancel / skip, restore, keep (403
   `เฉพาะเจ้าของโปรเจกต์หรือผู้จัดการ`). A CANCELLED proposal is read-only (422 `โปรเจกต์นี้ถูกยกเลิกแล้ว`, checked
   before 403). Every write locks the proposal row first (the lock presentation writes, task toggles and proposal edits
@@ -94,14 +99,14 @@ Validation and error messages are Thai and are shown to users as-is. The web cli
   — …`, `จำนวนผลิตของ {SKU} ถูกแก้ไขโดยผู้อื่นแล้ว — …`; `/items/:productId` of a SKU the tab does not list → 404
   `ข้อมูลนี้เปลี่ยนไปแล้ว — …`. Rule copy (422) is the shared `PERR` (quantity `จำนวนผลิตต้องเป็นจำนวนเต็ม 1–1,000,000
   ชิ้น`, lead days `จำนวนวันต้องเป็นจำนวนเต็ม 0–90 วัน`, dates `เลือกวันที่` / `วันที่ต้องไม่เกินวันนี้` /
-  `วันที่ผลิตเสร็จต้องไม่ก่อนวันที่เริ่มผลิต (…)` / `วันที่ส่งต้องไม่ก่อนวันที่ผลิตเสร็จ (…)` / …). Logged as entity `PROPOSAL`,
+  `วันที่ผลิตเสร็จต้องไม่ก่อน …` / `วันที่ส่งต้องไม่ก่อนวันที่ผลิตเสร็จ (…)` / …). Logged as entity `PROPOSAL`,
   actions `production.quantity|plan|confirm|produced|delivered|back|dates|cancel|skip|restore|keep` (Thai summaries
   with SKUs, pieces and dates). Notices (type `PROPOSAL_STATUS`, link `/proposals/:id?tab=production`, never to the
-  actor): confirm → owner + members `ยืนยันเริ่มผลิต n SKU แล้ว · ส่งภายใน {deadline}`; the last delivery → owner +
+  actor): confirm → owner + members `ยืนยันเริ่มผลิต n SKU แล้ว · ต้องการสินค้า {neededOn}`; the last delivery → owner +
   members `ส่งสินค้าเข้าคลัง/{ห้าง}ครบ n SKU แล้ว`; a presentation record / revert / edit of a pass or a proposal
   SKU / store edit that adds pending SKUs → owner `มี n SKU ผ่าน Buyer แล้ว — รอยืนยันเริ่มผลิต`, that newly flags
   confirmed SKUs → owner `n SKU ที่ยืนยันผลิตแล้วต้องตรวจสอบ`. Deadline alarms are not pushed (no scheduler): they
-  are home agenda rows and health chips. Removing SKUs from a proposal deletes their drafts and skips (confirmed rows
+  are home agenda rows and health chips. Removing SKUs from a proposal deletes their kept quantities and skips (confirmed rows
   stay, flagged); a product with production rows can't be deleted (409 `IN_USE` `ลบไม่ได้ เพราะสินค้านี้มีข้อมูลการผลิตใน
   n โปรเจกต์ — ปิดการใช้งานแทนได้`); a proposal with a confirmed SKU can't be deleted (409 `IN_USE`
   `มีสินค้าที่ยืนยันผลิตแล้ว ลบไม่ได้ — เปลี่ยนสถานะเป็น “ยกเลิก” แทน`; on a CANCELLED one the hint is
@@ -117,9 +122,9 @@ Validation and error messages are Thai and are shown to users as-is. The web cli
   `buyerAgendaFor`), merged per proposal + action + bucket + date + team (`mergeBuyerItems`), `createPackage` /
   `closeOut` steps of my IN_PROGRESS projects, and "รอผลิต" rows of my IN_PROGRESS / COMPLETED projects (kind
   `production`, `productionAgendaFor`: `confirmProduction` for the owner / an involved MANAGER or ADMIN while SKUs wait
-  for confirmation, `fillQuantity` for members without that right while pending SKUs have no quantity — both bucketed
-  by the production deadline, else `next`; `deliverProduction` for the owner and members once the deadline is within
-  7 days or past; `reviewProduction` in `next` while confirmed SKUs need review; `count`, `missingQty`, `deadline`,
+  for confirmation (the quantities are entered in its dialog), bucketed by the production deadline, else `next`;
+  `deliverProduction` for the owner and members once the deadline is within 7 days or past; `reviewProduction` in
+  `next` while confirmed SKUs need review; `count`, `deadline`,
   `overdueDays`, the passing `stores`; never `waiting`); sorted with `compareAgenda`, buckets `overdue · today · week · next ·
   waiting`. `canRecord` = `canRecordPresentation`. Later / undated tasks are only counted (`laterTasks`), tasks of
   other statuses too (`parkedTasks`); `doneLast7Days` counts my leaves completed since Bangkok midnight 6 days ago.
@@ -187,7 +192,7 @@ Validation and error messages are Thai and are shown to users as-is. The web cli
 | POST | /proposals/:id/status | owner or `proposal.update.any` | `{ status }` | `Proposal` |
 | POST | /proposals/:id/target-date | owner or `proposal.update.any` | `{ targetDate, shiftTasks }` — `targetDate` must be the 15th (422) | `Proposal` |
 | POST | /proposals/:id/duplicate | `proposal.create` + can view | `{ storeIds, targetDate }` — a new proposal for those stores (any of the channel, the source's included); `targetDate` must be the 15th (422); tasks keep `responsible` and the details table (values too) | `Proposal` |
-| DELETE | /proposals/:id | `proposal.delete.any`, or owner of a DRAFT; 409 `IN_USE` while a SKU is confirmed for production (`มีสินค้าที่ยืนยันผลิตแล้ว ลบไม่ได้ — เปลี่ยนสถานะเป็น “ยกเลิก” แทน`; CANCELLED: `… — งานที่ยกเลิกแล้วจะเก็บประวัติการผลิตไว้`) | — | `true` |
+| DELETE | /proposals/:id | `proposal.delete.any`, or owner of a DRAFT; 409 `IN_USE` while a SKU is still confirmed for production — IN_PRODUCTION / PRODUCED / DELIVERED (`productionDeleteBlock`: `มีสินค้าที่ยืนยันผลิตอยู่ n SKU ลบไม่ได้ — ยกเลิกการผลิตทุก SKU …`); SKUs whose production was cancelled don't block an Admin (their production rows and events cascade with the proposal), but anyone without `proposal.delete.any` gets 409 `IN_USE` `PRODUCTION_HISTORY_DELETE` (`โปรเจกต์นี้มีประวัติการผลิต — ลบได้เฉพาะ Admin …`) while any SKU was ever confirmed | — | `true` |
 | GET | /proposals/:id/tasks | can view | — | `Task[]` (flat) |
 | GET | /proposals/:id/comment-counts | can view | — | `Record<taskId, count>` |
 | GET | /proposals/:id/report | can view | — | `ProposalReport` — extras for the PDF export page: `users` the tasks refer to (assignees, completed by, created by; deactivated included), every task `comments` (oldest first), `lastActivity` = latest TASK activity per task id (absent when a task was never changed after creation) |
@@ -209,12 +214,12 @@ Validation and error messages are Thai and are shown to users as-is. The web cli
 | POST | /proposals/:id/presentation/tracks/:trackId/edit | record; finalize for PASSED · REJECTED · WITHDRAWN | `{ targetEventId, patch }` — fields of the target kind's `EDITABLE_FIELDS` (others dropped; a re-pitch's tasks as `taskIds`; text trimmed as in `record`). Reverted / unknown target → 409 `ข้อมูลนี้เปลี่ยนไปแล้ว …`; dates rechecked against the neighbouring steps (422); a problem the event already had (e.g. a pass that became partial because SKUs were added later) only blocks a patch that touches its fields. A patch that changes nothing writes nothing | `PresentationData` (appends EDITED) |
 | DELETE | /proposals/:id/presentation/tracks/:trackId | record; track untouched (only CREATED / SCHEDULED; 409 `บันทึกขั้นตอนแล้ว นำออกไม่ได้ …`) | — | `PresentationData` (the package goes with its last track) |
 | GET | /proposals/:id/production | can view | — | `ProductionView` (see *Production*; one consistent snapshot) |
-| PUT | /proposals/:id/production/quantities | team; confirmed SKUs need decide | `{ items: { productId, quantity: number \| null, before: number \| null }[] }` (1–200, unique) — `before` = the saved quantity the client showed (409 when it moved); `null` clears a draft (422 `SKU ที่ยืนยันแล้วต้องมีจำนวนผลิต` on a confirmed SKU); unlisted SKU → 409, CANCELLED → 409; unchanged values are skipped, nothing changed → no write. On a confirmed SKU that still passes it also acknowledges the passing stores | `ProductionView` |
+| PUT | /proposals/:id/production/quantities | decide | `{ items: { productId, quantity: 1–1,000,000, before: number \| null }[] }` (1–200, unique) — confirmed SKUs only ("แก้จำนวนผลิต"; a PENDING SKU → 409 `สถานะของ {SKU} เปลี่ยนไปแล้ว …`, its quantity is sent with confirm); `before` = the saved quantity the client showed (409 when it moved); unlisted SKU → 409, CANCELLED → 409; unchanged values are skipped, nothing changed → no write. On a SKU that still passes it also acknowledges the passing stores | `ProductionView` |
 | PATCH | /proposals/:id/production/plan | team; `leadDays` changes need decide | `{ leadDays?: 0–90, note?: string \| null }` (≥ 1 key; note trimmed, ≤ 500, blank → null) — upserts `production_plans`; no change → no write | `ProductionView` |
-| POST | /proposals/:id/production/confirm | decide | `{ items: { productId, quantity, saved }[], startedOn? }` — exactly `pendingIds` (else 409), each with its quantity (1–1,000,000) and `saved` (409 when the saved quantity moved); `startedOn` ≤ today and ≥ the earliest pass of these SKUs (default today). Rows → `IN_PRODUCTION`, `ackStoreIds` = their passing stores | `ProductionView` |
+| POST | /proposals/:id/production/confirm | decide | `{ items: { productId, quantity, saved }[], neededOn? }` — exactly `pendingIds` (else 409), each with its quantity (1–1,000,000) and `saved` (409 when the saved quantity moved); `neededOn` ("วันที่ต้องการสินค้า") today … the launch date (422 `วันที่ต้องการสินค้าต้องไม่ก่อนวันนี้` / `วันที่ต้องการสินค้าต้องไม่เกินวันวางขาย (…)` / once the launch has passed `เลยวันวางขายแล้ว — วันที่ต้องการสินค้าเลือกได้แค่วันนี้`), default `defaultNeededOn` (the plan deadline clamped into that range); `startedOn` = the set's earliest pass. Rows → `IN_PRODUCTION`, `ackStoreIds` = their passing stores | `ProductionView` |
 | POST | /proposals/:id/production/advance | team | `{ productIds (1–200), from: 'IN_PRODUCTION' \| 'PRODUCED', to?: 'DELIVERED', date, deliveredOn? }` — one step for every listed SKU (each must be in `from`, else 409): IN_PRODUCTION → PRODUCED (`date` ≥ `startedOn`) or PRODUCED → DELIVERED (`date` ≥ `producedOn`); `from: 'IN_PRODUCTION', to: 'DELIVERED'` records both (`date` = produced, `deliveredOn` = delivered). Dates ≤ today; a per-SKU error is prefixed `{SKU}: ` when several SKUs are sent. Delivery freezes `dueOn` | `ProductionView` |
-| POST | /proposals/:id/production/items/:productId/back | decide | `{ from: 'IN_PRODUCTION' \| 'PRODUCED' \| 'DELIVERED' }` — one step back, clearing that step's fields; IN_PRODUCTION → PENDING clears the confirmation (quantity stays as a draft; a SKU no longer in the proposal loses its row) | `ProductionView` |
-| PATCH | /proposals/:id/production/items/:productId/dates | team | `{ producedOn?, deliveredOn? }` (≥ 1 key) — PRODUCED / DELIVERED only (else 422 `ยังไม่ได้บันทึกขั้นนี้ จึงแก้วันที่ไม่ได้`); `startedOn ≤ producedOn ≤ deliveredOn ≤ today`; `dueOn` unchanged | `ProductionView` |
+| POST | /proposals/:id/production/items/:productId/back | decide | `{ from: 'IN_PRODUCTION' \| 'PRODUCED' \| 'DELIVERED' }` — one step back, clearing that step's fields; IN_PRODUCTION → PENDING clears the confirmation (the quantity is kept and prefilled at the next confirm; a SKU no longer in the proposal loses its row) | `ProductionView` |
+| PATCH | /proposals/:id/production/items/:productId/dates | team | `{ neededOn?, producedOn?, deliveredOn? }` (≥ 1 key) — `neededOn` on IN_PRODUCTION / PRODUCED needs decide (403 otherwise; same bounds as confirm; DELIVERED → 422 `ส่งแล้ว — แก้วันที่ต้องการสินค้าไม่ได้`), `producedOn` on PRODUCED / DELIVERED, `deliveredOn` on DELIVERED (else 422 `ยังไม่ได้บันทึกขั้นนี้ จึงแก้วันที่ไม่ได้`); `startedOn ≤ producedOn ≤ deliveredOn ≤ today`; `dueOn` unchanged | `ProductionView` |
 | POST | /proposals/:id/production/items/:productId/cancel | decide | `{ reason, from: 'PENDING' \| 'IN_PRODUCTION' \| 'PRODUCED' }` — reason required (trimmed, ≤ 500); from PENDING = "ไม่ผลิต" (skip; never in the confirm set); DELIVERED → 422 `ส่งแล้ว ยกเลิกไม่ได้ — ย้อนสถานะก่อน` | `ProductionView` |
 | POST | /proposals/:id/production/items/:productId/restore | decide | `{}` — CANCELLED only (else 409): a skip → PENDING, else PRODUCED when it was produced, else IN_PRODUCTION | `ProductionView` |
 | POST | /proposals/:id/production/items/:productId/keep | decide | `{ storeIds }` — the passing store ids the client showed; the row must need review and the ids must equal the current passing stores (else 409). Acknowledges them ("ผลิตต่อ" / "จำนวนเดิมใช้ได้") | `ProductionView` |

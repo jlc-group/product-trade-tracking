@@ -9,6 +9,12 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Wide desktops: 3xl ≈ 1080p at 100% with the sidebar open, 4xl ≈ 1440p. Pages use the extra width from here on. */
+@theme {
+    --breakpoint-3xl: 110rem;
+    --breakpoint-4xl: 137.5rem;
+}
+
 @theme inline {
     --font-heading: var(--font-sans);
     --font-sans: 'IBM Plex Sans Thai', 'Noto Sans Thai', 'Leelawadee UI', Tahoma, system-ui, sans-serif;

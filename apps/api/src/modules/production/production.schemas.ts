@@ -17,7 +17,7 @@ const zRealDate = zDate.refine(realDate, PERR.dateInvalid)
 export const quantitiesSchema = z.object(
   {
     items: z
-      .array(z.object({ productId: zId, quantity: zQty.nullable(), before: zQty.nullable() }, { message: BAD }), { message: BAD })
+      .array(z.object({ productId: zId, quantity: zQty, before: zQty.nullable() }, { message: BAD }), { message: BAD })
       .min(1, BAD)
       .max(IDS_MAX, BAD)
       .refine(uniqueIds, 'สินค้าซ้ำกัน'),
@@ -49,8 +49,8 @@ export const confirmSchema = z.object(
       .min(1, PERR.nothingPending)
       .max(IDS_MAX, BAD)
       .refine(uniqueIds, 'สินค้าซ้ำกัน'),
-    /** '' passes so the shared startedOnError answers "เลือกวันที่". */
-    startedOn: zStepDate.optional(),
+    /** '' passes so the shared neededOnError answers "เลือกวันที่". */
+    neededOn: zStepDate.optional(),
   },
   { message: BAD },
 )
@@ -76,8 +76,8 @@ export const backSchema = z.object({ from: z.enum(['IN_PRODUCTION', 'PRODUCED', 
 export type BackBody = z.output<typeof backSchema>
 
 export const datesSchema = z
-  .object({ producedOn: zRealDate.optional(), deliveredOn: zRealDate.optional() }, { message: BAD })
-  .refine((v) => v.producedOn !== undefined || v.deliveredOn !== undefined, PERR.nothingToSave)
+  .object({ neededOn: zRealDate.optional(), producedOn: zRealDate.optional(), deliveredOn: zRealDate.optional() }, { message: BAD })
+  .refine((v) => v.neededOn !== undefined || v.producedOn !== undefined || v.deliveredOn !== undefined, PERR.nothingToSave)
 export type DatesBody = z.output<typeof datesSchema>
 
 export const cancelSchema = z.object(

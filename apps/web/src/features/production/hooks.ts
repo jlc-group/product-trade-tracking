@@ -1,9 +1,7 @@
 // TanStack Query hooks of the "รอผลิต" tab (API: ./api.ts). Every write answers the whole ProductionView, which goes
-// straight into the cache. The quantity drafts (sessionStorage) live here too.
+// straight into the cache.
 import {
-  canEditQuantity,
   deriveProduction,
-  formatQty,
   PRODUCTION_LEAD_DAYS_DEFAULT,
   productionPerms,
   storeWord,
@@ -14,13 +12,12 @@ import {
   type ProductionEvent,
   type ProductionPlanInput,
   type ProductionQuantitiesInput,
-  type ProductionRow,
   type ProductionTrackView,
   type ProductionView,
   type User,
 } from '@flowtrade/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { toast } from 'sonner'
 import type { ProposalDetail } from '@/api'
 import { errorMessage, qk, useUserLookup } from '@/api/hooks'
@@ -28,8 +25,8 @@ import { useCurrentUser } from '@/auth/auth'
 import { presentationKey } from '@/features/presentation/hooks'
 import { today } from '@/lib/format'
 import { productionApi, productionKey } from './api'
-import { draftError, draftValue, impactText, productionImpact, readDrafts, savedQty, writeDrafts } from './model'
-import type { DraftsModel, ProductionModel, QtyDraft, QtyDrafts } from './types'
+import { impactText, productionImpact } from './model'
+import type { ProductionModel } from './types'
 
 export { productionKey }
 export type { ProductionModel }
@@ -100,90 +97,6 @@ export function useProductionImpact(proposal: Pick<ProposalDetail, 'id' | 'produ
     const view = qc.getQueryData<ProductionView>(productionKey(proposal.id))
     return view ? impactText(productionImpact(view, proposal.productIds, before, after)) : null
   }
-}
-
-// ---------- quantity drafts ----------
-
-const isDirty = (d: QtyDraft) => draftValue(d.text) !== d.saved
-
-/**
- * Unsaved quantities of the tab, kept in sessionStorage so they survive tab switches and reloads. A draft typed
- * against a row that has moved since (status or saved value), is no longer shown, or this viewer may not edit any
- * more is dropped (K25); the server's `before` check is the backstop.
- */
-export function useQuantityDrafts(model: ProductionModel): DraftsModel {
-  const proposalId = model.proposal.id
-  const [raw, setRaw] = useState<QtyDrafts>(() => readDrafts(proposalId))
-  const [attempted, setAttempted] = useState(false)
-  const { view, rowById, rows, canWork, canDecide } = model
-
-  const live = useMemo(() => {
-    if (!view) return {}
-    const out: QtyDrafts = {}
-    for (const [id, d] of Object.entries(raw)) {
-      const row = rowById.get(id)
-      if (!row || row.status !== d.status || savedQty(row) !== d.saved || !canEditQuantity(row.status, { canWork, canDecide })) continue
-      out[id] = d
-    }
-    return out
-  }, [raw, view, rowById, canWork, canDecide])
-
-  useEffect(() => {
-    if (view) writeDrafts(proposalId, live)
-  }, [proposalId, view, live])
-
-  return useMemo<DraftsModel>(() => {
-    const draftOf = (row: ProductionRow) => live[row.productId]
-    const errorOf = (row: ProductionRow) => {
-      const d = draftOf(row)
-      return d && isDirty(d) ? draftError(row, d.text) : null
-    }
-    const confirmQty = (row: ProductionRow) => {
-      const d = draftOf(row)
-      const v = d ? draftValue(d.text) : undefined
-      if (typeof v === 'number') return v
-      // A cleared input counts as missing even when a quantity was saved before.
-      if (v === null && d && isDirty(d)) return null
-      return savedQty(row)
-    }
-    const dirtyRows = rows.filter((r) => {
-      const d = draftOf(r)
-      return !!d && isDirty(d)
-    })
-    const pending = rows.filter((r) => r.status === 'PENDING')
-    return {
-      textOf: (row) => draftOf(row)?.text ?? (savedQty(row) != null ? formatQty(savedQty(row)!) : ''),
-      setText: (row, text) => setRaw((prev) => ({ ...prev, [row.productId]: { text, status: row.status, saved: savedQty(row) } })),
-      settle: (row) => {
-        const d = draftOf(row)
-        if (!d) return
-        const v = draftValue(d.text)
-        if (v === d.saved)
-          setRaw((prev) => {
-            const next = { ...prev }
-            delete next[row.productId]
-            return next
-          })
-        else if (typeof v === 'number' && d.text !== formatQty(v)) setRaw((prev) => ({ ...prev, [row.productId]: { ...d, text: formatQty(v) } }))
-      },
-      errorOf,
-      isDirty: (productId) => dirtyRows.some((r) => r.productId === productId),
-      dirtyRows,
-      invalidCount: dirtyRows.filter((r) => errorOf(r)).length,
-      clear: (ids) =>
-        setRaw((prev) => {
-          if (!ids) return {}
-          const next = { ...prev }
-          for (const id of ids) delete next[id]
-          return next
-        }),
-      confirmQty,
-      missingRows: pending.filter((r) => confirmQty(r) == null),
-      invalidPendingRows: pending.filter((r) => errorOf(r) !== null),
-      attempted,
-      setAttempted,
-    }
-  }, [live, rows, attempted])
 }
 
 // ---------- mutations ----------

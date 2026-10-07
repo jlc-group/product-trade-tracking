@@ -1,7 +1,8 @@
 // Web side of the "รอผลิต" tab: status looks, derived copy (next card, header line, row lines, history), the
-// deadline timeline and the quantity drafts. The rules live in @flowtrade/shared (production.ts). No React and no
-// clock reads — `today` always comes in as an argument.
+// deadline timeline and the quantity inputs of the dialogs. The rules live in @flowtrade/shared (production.ts). No
+// React and no clock reads — `today` always comes in as an argument.
 import {
+  addDays,
   deriveProduction,
   diffDays,
   formatQty,
@@ -22,7 +23,7 @@ import {
 } from '@flowtrade/shared'
 import { relativeTo } from '@/features/presentation/model'
 import { formatDate } from '@/lib/format'
-import type { HeaderLine, NextCard, QtyDraft, QtyDrafts, StatusMeta } from './types'
+import type { HeaderLine, NextCard, StatusMeta } from './types'
 
 export { relativeTo }
 
@@ -64,8 +65,6 @@ export interface NextCardContext {
   canDecide: boolean
   word: string
   today: ISODate
-  /** Pending rows still without a quantity, counting unsaved drafts. */
-  missingNow: number
 }
 
 /** The one thing to do now on the tab; first match wins. */
@@ -78,7 +77,7 @@ export function nextCard(c: NextCardContext): NextCard {
 
   if (s.pending > 0) {
     const reason = [
-      c.missingNow > 0 ? `กรอกจำนวนผลิตให้ครบก่อน (ยังขาด ${c.missingNow} SKU) · ${due}` : due,
+      c.canDecide ? `กรอกจำนวนผลิตและวันที่ต้องการสินค้าตอนกดยืนยัน · ${due}` : due,
       s.confirmed > 0 && `ยืนยันไปแล้ว ${s.confirmed} SKU — SKU ใหม่ต้องยืนยันอีกครั้ง`,
       c.canDecide && 'SKU ที่ไม่ต้องผลิต เลือก “ไม่ผลิต” ที่เมนู ⋯ ของแถวนั้น',
     ]
@@ -90,7 +89,7 @@ export function nextCard(c: NextCardContext): NextCard {
       title: overdue ? `มี ${s.pending} SKU ที่ผ่าน Buyer แล้ว — เลยกำหนดผลิตมาแล้ว ${s.overdueDays} วัน` : `มี ${s.pending} SKU ที่ผ่าน Buyer แล้ว — รอยืนยันเริ่มผลิต`,
       reason,
       primary: c.canDecide ? { label: `ยืนยันเริ่มผลิต (${s.pending} SKU)`, icon: 'confirm', action: { kind: 'confirm' } } : null,
-      note: c.canDecide ? null : c.canWork ? 'เจ้าของโปรเจกต์หรือผู้จัดการเป็นผู้กดยืนยันเริ่มผลิต — กรอกจำนวนผลิตไว้ได้เลย' : 'รอเจ้าของโปรเจกต์หรือผู้จัดการยืนยันเริ่มผลิต',
+      note: c.canDecide ? null : 'รอเจ้าของโปรเจกต์หรือผู้จัดการกรอกจำนวนผลิตและยืนยันเริ่มผลิต',
     }
   }
 
@@ -179,17 +178,17 @@ export function rowMeta(row: ProductionRow, userName: (id: string | null | undef
 
 export interface SubLine {
   text: string
-  tone: 'danger' | 'warning' | 'success' | 'muted'
+  tone: 'danger' | 'warning' | 'success' | 'info' | 'muted'
 }
 
 /** One line under the status chip: lateness first, then the step's date. */
-export function statusSubLine(row: ProductionRow): SubLine | null {
+export function statusSubLine(row: ProductionRow, today: ISODate): SubLine | null {
   const item = row.item
   if (row.late?.kind === 'OVERDUE') return { text: `เลยกำหนด ${row.late.days} วัน`, tone: 'danger' }
   if (row.late?.kind === 'DELIVERED_LATE') return { text: `ส่ง ${formatDate(item?.deliveredOn)} · ช้า ${row.late.days} วัน`, tone: 'warning' }
   switch (row.status) {
     case 'IN_PRODUCTION':
-      return item?.startedOn ? { text: `เริ่มผลิต ${formatDate(item.startedOn)}`, tone: 'muted' } : null
+      return { text: `ต้องการสินค้า ${formatDate(row.dueOn)} · ${relativeTo(row.dueOn, today)}`, tone: 'muted' }
     case 'PRODUCED':
       return { text: `ผลิตเสร็จ ${formatDate(item?.producedOn)}`, tone: 'muted' }
     case 'DELIVERED':
@@ -246,6 +245,25 @@ export function flagCalloutText(rows: ProductionRow[]): string {
 
 // ---------- deadline timeline (§5.7) ----------
 
+/** A point closer to launch than this many days is "too close" (yellow). */
+export const LAUNCH_RISK_DAYS = 14
+
+/** 17 → "2 สัปดาห์ 3 วัน", 14 → "2 สัปดาห์", 5 → "5 วัน". */
+export function weeksText(days: number): string {
+  const weeks = Math.floor(days / 7)
+  const rest = days % 7
+  if (weeks === 0) return `${rest} วัน`
+  return rest ? `${weeks} สัปดาห์ ${rest} วัน` : `${weeks} สัปดาห์`
+}
+
+export interface TimelineFlag {
+  tone: 'danger' | 'warning'
+  /** Short text under the legend date. */
+  text: string
+  /** The sentence for the alert above the bar. */
+  alert: string
+}
+
 export interface TimelinePoint {
   key: 'passed' | 'today' | 'deadline' | 'launch'
   label: string
@@ -253,34 +271,121 @@ export interface TimelinePoint {
   /** 0…1 along the bar. */
   pos: number
   dot: string
+  /** Red = past its limit, yellow = inside the last LAUNCH_RISK_DAYS before launch. */
+  flag: TimelineFlag | null
+}
+
+export interface TimelineAlerts {
+  danger: string[]
+  warning: string[]
 }
 
 const POINT_RANK: Record<TimelinePoint['key'], number> = { today: 0, passed: 1, deadline: 2, launch: 3 }
+const FLAG_DOT: Record<TimelineFlag['tone'], string> = { danger: 'bg-danger', warning: 'bg-warning' }
 
-/** Points of the bar and legend, chronological (same date: today first). */
-export function timelinePoints(view: Pick<ProductionView, 'today' | 'targetDate' | 'rows' | 'summary'>): { points: TimelinePoint[]; todayPos: number } {
+type TimelineInput = Pick<ProductionView, 'today' | 'targetDate' | 'rows' | 'summary'>
+
+/** Red / yellow flag of each point; only while SKUs are still undelivered, except a late delivery. */
+function pointFlags(view: TimelineInput, word: string): Record<TimelinePoint['key'], TimelineFlag | null> {
   const { today, targetDate, summary: s } = view
-  const started = view.rows.map((r) => r.item?.startedOn).filter((d): d is ISODate => !!d)
-  const start = s.firstPassedOn ?? (started.length ? started.reduce((a, b) => (b < a ? b : a)) : today)
+  const open = s.state === 'PENDING' || s.state === 'ACTIVE'
+  const undelivered = `ยังไม่ส่ง ${s.undelivered} SKU`
+  const flags: Record<TimelinePoint['key'], TimelineFlag | null> = { passed: null, today: null, deadline: null, launch: null }
+
+  if (open && s.firstPassedOn) {
+    const left = diffDays(s.firstPassedOn, targetDate)
+    if (left < 0)
+      flags.passed = { tone: 'danger', text: `หลังวันวางขาย ${weeksText(-left)}`, alert: `Buyer ให้ผ่านหลังวันวางขายมาแล้ว ${weeksText(-left)}` }
+    else if (left < LAUNCH_RISK_DAYS)
+      flags.passed = { tone: 'warning', text: `ห่างวันวางขาย ${left} วัน`, alert: `ผ่าน Buyer เมื่อเหลือแค่ ${left} วันก่อนวางขาย — เหลือเวลาผลิตน้อย` }
+  }
+
+  if (open && s.overdueDays === 0) {
+    const left = diffDays(today, targetDate)
+    if (left >= 0 && left < LAUNCH_RISK_DAYS)
+      flags.today = {
+        tone: 'warning',
+        text: left === 0 ? 'วันวางขาย' : `อีก ${left} วันวางขาย`,
+        alert: `${left === 0 ? 'วันนี้วางขาย' : `อีก ${left} วันจะถึงวันวางขาย`} แต่${undelivered}`,
+      }
+  }
+
+  const lateDays = Math.max(0, ...view.rows.map((r) => (r.late?.kind === 'DELIVERED_LATE' ? r.late.days : 0)))
+  // The date to beat: the earliest open due ("วันที่ต้องการสินค้า" of confirmed SKUs, else the plan deadline).
+  const dueLeft = diffDays(s.deadline, targetDate)
+  if (s.overdueDays > 0)
+    flags.deadline = { tone: 'danger', text: `เกินมา ${weeksText(s.overdueDays)}`, alert: `เลยกำหนด${deliverWord(word)}มาแล้ว ${weeksText(s.overdueDays)} — ${undelivered}` }
+  else if (lateDays > 0)
+    flags.deadline = { tone: 'danger', text: `ส่งช้า ${weeksText(lateDays)}`, alert: `${deliverWord(word)}ช้ากว่ากำหนด ${weeksText(lateDays)} (${s.deliveredLate} SKU)` }
+  else if (open && dueLeft < LAUNCH_RISK_DAYS) {
+    const gap = dueLeft === 0 ? 'ตรงวันวางขาย' : `แค่ ${dueLeft} วันก่อนวางขาย`
+    flags.deadline = {
+      tone: 'warning',
+      text: dueLeft === 0 ? 'ตรงวันวางขาย' : `ห่างวันวางขาย ${dueLeft} วัน`,
+      alert: `${s.deadline === s.planDeadline ? `ตั้ง deadline ไว้${gap}` : `วันที่ต้องการสินค้าอยู่${gap}`} (น้อยกว่า ${LAUNCH_RISK_DAYS} วัน) — ใกล้วันวางขายเกินไป`,
+    }
+  }
+
+  if (open && today > targetDate) {
+    const over = weeksText(diffDays(targetDate, today))
+    flags.launch = { tone: 'danger', text: `เกินมา ${over}`, alert: `เลยวันวางขายมาแล้ว ${over} — ${undelivered}` }
+  }
+  return flags
+}
+
+export interface TimelineBand {
+  /** 0…1 along the bar. */
+  from: number
+  to: number
+}
+
+/**
+ * Points of the bar and legend, chronological (same date: today first); the yellow risk band before launch; the red
+ * late band from the deadline to today (SKUs still undelivered) or to the last delivery (delivered late).
+ */
+export function timelinePoints(
+  view: TimelineInput,
+  word: string,
+): { points: TimelinePoint[]; todayPos: number; riskBand: TimelineBand | null; lateBand: (TimelineBand & { text: string }) | null } {
+  const { today, targetDate, summary: s } = view
+  // Without a pass (every row lost it) the bar starts at the earliest start — or today, as a start may be planned.
+  const start = s.firstPassedOn ?? view.rows.reduce((min, r) => (r.item?.startedOn && r.item.startedOn < min ? r.item.startedOn : min), today)
   const end = targetDate > today ? targetDate : today
   const span = Math.max(1, diffDays(start, end))
   const pos = (d: ISODate) => Math.min(1, Math.max(0, diffDays(start, d) / span))
+  const flags = pointFlags(view, word)
   const doneOnTime = s.state === 'DONE' && s.deliveredLate === 0
-  const deadlineDot = s.overdueDays > 0 ? 'bg-danger' : doneOnTime ? 'bg-success' : 'bg-warning'
+  const dot = (key: TimelinePoint['key'], plain: string) => {
+    const flag = flags[key]
+    return flag ? FLAG_DOT[flag.tone] : plain
+  }
   const points: TimelinePoint[] = [
-    ...(s.firstPassedOn ? [{ key: 'passed' as const, label: 'ผ่าน Buyer', date: s.firstPassedOn, pos: pos(s.firstPassedOn), dot: 'bg-success' }] : []),
-    { key: 'today', label: 'วันนี้', date: today, pos: pos(today), dot: 'bg-primary' },
-    { key: 'deadline', label: 'Deadline ผลิต/ส่งคลัง', date: s.deadline, pos: pos(s.deadline), dot: deadlineDot },
-    { key: 'launch', label: 'วางขาย', date: targetDate, pos: pos(targetDate), dot: 'bg-foreground' },
+    ...(s.firstPassedOn ? [{ key: 'passed' as const, label: 'ผ่าน Buyer', date: s.firstPassedOn, pos: pos(s.firstPassedOn), dot: dot('passed', 'bg-success'), flag: flags.passed }] : []),
+    { key: 'today', label: 'วันนี้', date: today, pos: pos(today), dot: 'bg-primary', flag: flags.today },
+    { key: 'deadline', label: s.deadline === s.planDeadline ? 'Deadline ผลิต/ส่งคลัง' : 'วันที่ต้องการสินค้า', date: s.deadline, pos: pos(s.deadline), dot: dot('deadline', doneOnTime ? 'bg-success' : 'bg-muted-foreground'), flag: flags.deadline },
+    { key: 'launch', label: 'วางขาย', date: targetDate, pos: pos(targetDate), dot: dot('launch', 'bg-foreground'), flag: flags.launch },
   ]
   points.sort((a, b) => a.date.localeCompare(b.date) || POINT_RANK[a.key] - POINT_RANK[b.key])
-  return { points, todayPos: pos(today) }
+  const open = s.state === 'PENDING' || s.state === 'ACTIVE'
+  const riskBand = open ? { from: pos(addDays(targetDate, -LAUNCH_RISK_DAYS)), to: pos(targetDate) } : null
+  // From the missed due date to today (still open), or to the last delivery (delivered late; each SKU has its own due).
+  const deliveredLateDays = Math.max(0, ...view.rows.map((r) => (r.late?.kind === 'DELIVERED_LATE' ? r.late.days : 0)))
+  const lateUntil = s.overdueDays > 0 ? today : deliveredLateDays > 0 && s.lastDeliveredOn ? s.lastDeliveredOn : null
+  const lateFrom = lateUntil && addDays(lateUntil, -(s.overdueDays > 0 ? s.overdueDays : deliveredLateDays))
+  const lateBand = lateUntil && lateFrom && flags.deadline?.tone === 'danger' ? { from: pos(lateFrom), to: pos(lateUntil), text: flags.deadline.text } : null
+  return { points, todayPos: pos(today), riskBand: riskBand && riskBand.to > riskBand.from ? riskBand : null, lateBand }
+}
+
+/** The alert sentences of the flagged points, in timeline order. */
+export function timelineAlerts(points: TimelinePoint[]): TimelineAlerts {
+  const pick = (tone: TimelineFlag['tone']) => points.flatMap((p) => (p.flag?.tone === tone ? [p.flag.alert] : []))
+  return { danger: pick('danger'), warning: pick('warning') }
 }
 
 /** Timeline header chip. */
 export function deadlineChip(s: ProductionSummary): SubLine {
-  if (s.overdueDays > 0) return { text: `เลยกำหนด ${s.overdueDays} วัน`, tone: 'danger' }
-  if (s.state === 'DONE') return s.deliveredLate > 0 ? { text: 'ส่งช้า', tone: 'warning' } : { text: 'ส่งครบแล้ว', tone: 'success' }
+  if (s.overdueDays > 0) return { text: `เลยกำหนด ${weeksText(s.overdueDays)}`, tone: 'danger' }
+  if (s.state === 'DONE') return s.deliveredLate > 0 ? { text: 'ส่งช้า', tone: 'danger' } : { text: 'ส่งครบแล้ว', tone: 'success' }
   const d = s.daysToDeadline
   if (d < 0) return { text: `เลยมา ${-d} วัน`, tone: 'muted' }
   if (d === 0) return { text: 'วันนี้', tone: 'warning' }
@@ -294,8 +399,12 @@ export function eventTitle(e: ProductionEvent, word: string): string {
   switch (e.kind) {
     case 'QUANTITY':
       return `จำนวนผลิต ${e.quantityBefore != null ? formatQty(e.quantityBefore) : '—'} → ${e.quantityAfter != null ? `${formatQty(e.quantityAfter)} ชิ้น` : 'ล้าง'}`
-    case 'CONFIRM':
-      return `ยืนยันเริ่มผลิต${e.quantityAfter != null ? ` (${formatQty(e.quantityAfter)} ชิ้น)` : ''}${e.date ? ` · เริ่ม ${formatDate(e.date)}` : ''}`
+    case 'CONFIRM': {
+      // Newer confirms carry "วันที่ต้องการสินค้า"; older ones a picked start date.
+      const need = typeof e.detail.neededOn === 'string' ? e.detail.neededOn : null
+      const when = need ? ` · ต้องการสินค้า ${formatDate(need)}` : e.date ? ` · เริ่ม ${formatDate(e.date)}` : ''
+      return `ยืนยันเริ่มผลิต${e.quantityAfter != null ? ` (${formatQty(e.quantityAfter)} ชิ้น)` : ''}${when}`
+    }
     case 'ADVANCE':
       return e.toStatus === 'DELIVERED' ? `${deliverWord(word)}แล้ว ${formatDate(e.date)}` : `ผลิตเสร็จ ${formatDate(e.date)}`
     case 'BACK':
@@ -305,9 +414,13 @@ export function eventTitle(e: ProductionEvent, word: string): string {
         const v = e.detail[key]
         return Array.isArray(v) && v.length === 2 ? `${formatDate(String(v[0]))} → ${formatDate(String(v[1]))}` : null
       }
+      const needed = pair('neededOn')
+      const started = pair('startedOn')
       const produced = pair('producedOn')
       const delivered = pair('deliveredOn')
-      return ['แก้วันที่', produced && `ผลิตเสร็จ ${produced}`, delivered && `ส่ง ${delivered}`].filter(Boolean).join(' · ')
+      return ['แก้วันที่', needed && `ต้องการสินค้า ${needed}`, started && `เริ่มผลิต ${started}`, produced && `ผลิตเสร็จ ${produced}`, delivered && `ส่ง ${delivered}`]
+        .filter(Boolean)
+        .join(' · ')
     }
     case 'CANCEL':
       return `${e.fromStatus === 'PENDING' ? 'ไม่ผลิต' : 'ยกเลิกการผลิต'}${e.reason ? `: “${e.reason}”` : ''}`
@@ -320,59 +433,18 @@ export function eventTitle(e: ProductionEvent, word: string): string {
   }
 }
 
-// ---------- quantity drafts (§5.9.2, K24, K25) ----------
+// ---------- quantity inputs (confirm and edit dialogs) ----------
 
-const DRAFTS_PREFIX = 'flowtrade.production.drafts.'
-const draftsKey = (proposalId: string) => `${DRAFTS_PREFIX}${proposalId}`
-
-/** Drop every proposal's unsaved quantities, so they never carry over to the next user on a shared browser. */
-export function clearAllDrafts() {
-  try {
-    for (const key of Object.keys(sessionStorage)) if (key.startsWith(DRAFTS_PREFIX)) sessionStorage.removeItem(key)
-  } catch {
-    // storage blocked: nothing was stored
-  }
-}
-
-const isDraft = (v: unknown): v is QtyDraft =>
-  typeof v === 'object' && v !== null && typeof (v as QtyDraft).text === 'string' && typeof (v as QtyDraft).status === 'string' && ((v as QtyDraft).saved === null || typeof (v as QtyDraft).saved === 'number')
-
-/** sessionStorage drafts of a proposal; {} when absent, unreadable or blocked. */
-export function readDrafts(proposalId: string): QtyDrafts {
-  try {
-    const raw = sessionStorage.getItem(draftsKey(proposalId))
-    if (!raw) return {}
-    const parsed: unknown = JSON.parse(raw)
-    if (typeof parsed !== 'object' || parsed === null) return {}
-    const out: QtyDrafts = {}
-    for (const [id, d] of Object.entries(parsed)) if (isDraft(d)) out[id] = d
-    return out
-  } catch {
-    return {}
-  }
-}
-
-export function writeDrafts(proposalId: string, drafts: QtyDrafts) {
-  try {
-    if (Object.keys(drafts).length === 0) sessionStorage.removeItem(draftsKey(proposalId))
-    else sessionStorage.setItem(draftsKey(proposalId), JSON.stringify(drafts))
-  } catch {
-    // storage blocked (private mode): drafts just don't survive a reload
-  }
-}
-
-/** The quantity a draft text stands for: null = empty, 'invalid' = not a whole number or out of range. */
-export function draftValue(text: string): number | null | 'invalid' {
+/** A typed quantity: its number, or the field error (empty → "กรอกจำนวนผลิต"). */
+export function readQty(text: string): { value: number; error: null } | { value: null; error: string } {
   const v = parseQtyText(text)
-  return typeof v === 'number' && quantityError(v, PROD_ERR) ? 'invalid' : v
+  if (v === null) return { value: null, error: PROD_ERR.qtyRequired }
+  if (v === 'invalid' || quantityError(v, PROD_ERR)) return { value: null, error: PROD_ERR.qty }
+  return { value: v, error: null }
 }
 
-/** Error of a typed value on this row (empty is fine only while PENDING). */
-export function draftError(row: Pick<ProductionRow, 'status'>, text: string): string | null {
-  const v = draftValue(text)
-  if (v === 'invalid') return PROD_ERR.qty
-  return v === null && row.status !== 'PENDING' ? PROD_ERR.qtyRequired : null
-}
+/** Input text of a saved quantity: grouped, or '' when none. */
+export const qtyText = (q: number | null | undefined) => (q != null ? formatQty(q) : '')
 
 export const savedQty = (row: Pick<ProductionRow, 'item'>) => row.item?.quantity ?? null
 

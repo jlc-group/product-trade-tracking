@@ -20,6 +20,8 @@ export function ThaiCalendar(props: {
   max?: ISODate | null
   /** Days to highlight (e.g. milestone dates). */
   marked?: ISODate[]
+  /** Clicking the selected day keeps it (single mode would otherwise clear it). */
+  required?: boolean
 }) {
   const { buddhistEra } = usePrefs()
   return (
@@ -28,7 +30,9 @@ export function ThaiCalendar(props: {
       locale={th}
       selected={props.selected ? toDate(props.selected) : undefined}
       defaultMonth={props.selected ? toDate(props.selected) : props.min ? toDate(props.min) : undefined}
-      onSelect={(d) => props.onSelect(d ? toIso(d) : null)}
+      onSelect={(d) => {
+        if (d || !props.required) props.onSelect(d ? toIso(d) : null)
+      }}
       disabled={[...(props.min ? [{ before: toDate(props.min) }] : []), ...(props.max ? [{ after: toDate(props.max) }] : [])]}
       modifiers={{ marked: (props.marked ?? []).map(toDate) }}
       modifiersClassNames={{ marked: 'after:absolute after:bottom-0.5 after:left-1/2 after:size-1 after:-translate-x-1/2 after:rounded-full after:bg-warning relative' }}
@@ -92,6 +96,7 @@ export function DateField({ value, onChange, placeholder = 'เลือกว�
           selected={value}
           min={min}
           max={max}
+          required={!clearable}
           onSelect={(v) => {
             onChange(v)
             setOpen(false)

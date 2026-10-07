@@ -101,7 +101,7 @@ export function HistoryTab({ proposalId }: { proposalId: string }) {
   const groups = groupByDay(data)
 
   return (
-    <div className="max-w-3xl space-y-6 rounded-xl border bg-card p-4 sm:p-6">
+    <div className="space-y-6 rounded-xl border bg-card p-4 sm:p-6">
       {groups.map((group) => (
         <section key={group.key} aria-labelledby={`history-${group.key}`}>
           <h3 id={`history-${group.key}`} className="mb-3 text-xs font-medium text-muted-foreground">
@@ -141,7 +141,7 @@ export function HistoryTab({ proposalId }: { proposalId: string }) {
 
 function HistorySkeleton() {
   return (
-    <div className="max-w-3xl space-y-5 rounded-xl border bg-card p-4 sm:p-6" aria-busy="true" aria-label="กำลังโหลดประวัติ">
+    <div className="space-y-5 rounded-xl border bg-card p-4 sm:p-6" aria-busy="true" aria-label="กำลังโหลดประวัติ">
       <Skeleton className="h-3 w-20" />
       {Array.from({ length: 6 }, (_, i) => (
         <div key={i} className="flex gap-3">

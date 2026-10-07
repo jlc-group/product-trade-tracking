@@ -46,7 +46,7 @@ export function GridView({ items }: { items: ProposalListItem[] }) {
             </span>
             {g.overdue > 0 && <span className="tabular rounded-full bg-danger-soft px-2 text-xs leading-5 font-medium text-danger">งานเลยกำหนด {g.overdue}</span>}
           </header>
-          <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 3xl:grid-cols-4 4xl:grid-cols-5">
             {g.items.map((p) => (
               <li key={p.id} className="min-w-0">
                 <ProposalCard p={p} hideStore className="h-full" />

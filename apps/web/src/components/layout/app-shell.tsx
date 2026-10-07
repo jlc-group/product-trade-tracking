@@ -238,13 +238,14 @@ export function AppShell() {
         <SidebarRail />
       </Sidebar>
       <SidebarInset className="min-w-0 bg-background">
-        <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/70 md:px-6">
+        <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/70 md:px-6 lg:px-8 3xl:px-10">
           <SidebarTrigger className="-ml-1" />
           <div className="ml-auto flex items-center gap-1.5">
             <NotificationBell />
           </div>
         </header>
-        <main className="mx-auto flex w-full max-w-[1440px] min-w-0 flex-1 flex-col px-4 py-6 md:px-6 lg:px-8">
+        {/* Fluid on desktops up to 1440p monitors; only ultrawide screens get a cap so tables and text don't stretch thin. */}
+        <main className="mx-auto flex w-full max-w-[2400px] min-w-0 flex-1 flex-col px-4 py-6 md:px-6 lg:px-8 3xl:px-10">
           <Suspense fallback={<FullPageSpinner />}>
             <Outlet />
           </Suspense>

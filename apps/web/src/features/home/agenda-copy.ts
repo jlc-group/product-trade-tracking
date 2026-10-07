@@ -55,8 +55,6 @@ export function productionTitle(item: Pick<ProductionAgendaItem, 'action' | 'cou
   switch (item.action) {
     case 'confirmProduction':
       return `ยืนยันเริ่มผลิต ${item.count} SKU`
-    case 'fillQuantity':
-      return `กรอกจำนวนผลิต ${item.count} SKU`
     case 'deliverProduction':
       return item.overdueDays > 0
         ? `เลยกำหนดผลิต ${item.overdueDays} วัน — ยังไม่ส่ง ${item.count} SKU`

@@ -45,6 +45,7 @@ export function toProductionItem(row: ItemRow): ProductionItem {
     confirmedAt: isoOrNull(row.confirmedAt),
     confirmedById: row.confirmedById,
     startedOn: toDateOnly(row.startedOn),
+    neededOn: toDateOnly(row.neededOn),
     producedOn: toDateOnly(row.producedOn),
     producedById: row.producedById,
     deliveredOn: toDateOnly(row.deliveredOn),
@@ -61,12 +62,13 @@ export function toProductionItem(row: ItemRow): ProductionItem {
 }
 
 /** The fields deriveProduction reads (home loads only these columns). */
-export function toProductionItemCore(row: Pick<ItemRow, 'productId' | 'status' | 'quantity' | 'confirmedAt' | 'deliveredOn' | 'dueOn' | 'ackStoreIds'>): ProductionItemCore {
+export function toProductionItemCore(row: Pick<ItemRow, 'productId' | 'status' | 'quantity' | 'confirmedAt' | 'neededOn' | 'deliveredOn' | 'dueOn' | 'ackStoreIds'>): ProductionItemCore {
   return {
     productId: row.productId,
     status: row.status,
     quantity: row.quantity,
     confirmedAt: isoOrNull(row.confirmedAt),
+    neededOn: toDateOnly(row.neededOn),
     deliveredOn: toDateOnly(row.deliveredOn),
     dueOn: toDateOnly(row.dueOn),
     ackStoreIds: row.ackStoreIds,

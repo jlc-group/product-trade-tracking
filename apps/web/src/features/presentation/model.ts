@@ -228,7 +228,7 @@ export function choiceForEvent(kind: EventKind): RecordChoice | null {
   }
 }
 
-/** "ใช้ผลเดียวกันกับห้างอื่น" works only for "ยังไม่ทราบผล" and for "ผ่าน" with every SKU accepted. */
+/** "ใช้ผลเดียวกันกับห้างอื่น" works only for "นำเสนอแล้ว" and for "ผ่าน" with every SKU accepted. */
 export function sameResultAllowed(choice: RecordChoice | null, form: Pick<StepForm, 'acceptedProductIds'>, productIds: string[]) {
   if (choice === 'pending') return true
   if (choice !== 'passed') return false
@@ -633,7 +633,7 @@ export function stepFormFromEvent(e: TrackEvent, base: StepForm): StepForm {
 
 /**
  * The events a record-dialog submit appends. "present" mode: PRESENTED, plus the outcome dated the same
- * day unless the choice is "ยังไม่ทราบผล". `productIds` = the proposal's SKUs (all ticked → null).
+ * day unless the choice is "นำเสนอแล้ว". `productIds` = the proposal's SKUs (all ticked → null).
  */
 export function buildStepEvents(mode: RecordMode, choice: RecordChoice, form: StepForm, productIds: string[]): StageEvent[] {
   const text = (v: string) => v.trim() || null

@@ -5,7 +5,6 @@ import { Navigate, Outlet, useLocation } from 'react-router'
 import { api } from '@/api'
 import { qk, useMe } from '@/api/hooks'
 import { FullPageSpinner } from '@/components/common/full-page-spinner'
-import { clearAllDrafts } from '@/features/production/model'
 
 interface AuthContextValue {
   user: User | null
@@ -21,10 +20,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient()
   const { data: user = null, isLoading } = useMe()
 
-  // Drop every cached query except `me` (clearing `me` would detach its observer), and the previous user's unsaved drafts.
+  // Drop every cached query except `me` (clearing `me` would detach its observer).
   const resetCache = useCallback(() => {
     qc.removeQueries({ predicate: (q) => q.queryKey[0] !== qk.me[0] })
-    clearAllDrafts()
   }, [qc])
 
   const afterLogin = useCallback(

@@ -10,11 +10,13 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import App from './App'
 import './index.css'
 
-// Leftovers from the retired in-browser demo mode and the presentation prototype (data lived in localStorage).
+// Leftovers from the retired in-browser demo mode and the presentation prototype (data lived in localStorage), and
+// from the retired in-table production quantity drafts (sessionStorage).
 try {
   localStorage.removeItem('flowtrade.mockdb')
   localStorage.removeItem('flowtrade.session')
   for (const key of Object.keys(localStorage)) if (key.startsWith('flowtrade.proto.presentation.')) localStorage.removeItem(key)
+  for (const key of Object.keys(sessionStorage)) if (key.startsWith('flowtrade.production.drafts.')) sessionStorage.removeItem(key)
 } catch {
   // storage blocked — nothing to clean
 }

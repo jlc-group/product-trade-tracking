@@ -113,8 +113,8 @@ export interface DashboardSummary {
 export type AgendaBucket = 'overdue' | 'today' | 'week' | 'next' | 'waiting'
 export type BuyerAction = 'sendInfo' | 'present' | 'confirmPresented' | 'schedule' | 'followUp'
 export type ProposalAction = 'createPackage' | 'closeOut'
-/** confirm / review: owner or an involved MANAGER/ADMIN · fillQuantity: members without that right · deliver: owner + members. */
-export type ProductionAction = 'confirmProduction' | 'fillQuantity' | 'deliverProduction' | 'reviewProduction'
+/** confirm (quantities are entered there) / review: owner or an involved MANAGER/ADMIN · deliver: owner + members. */
+export type ProductionAction = 'confirmProduction' | 'deliverProduction' | 'reviewProduction'
 export type ProjectPhase = 'PREP' | 'READY' | 'BUYER' | 'LISTED' | 'NOT_LISTED' | 'CLOSED'
 export type HealthLevel = 'LATE' | 'AT_RISK'
 
@@ -189,10 +189,8 @@ export interface ProposalAgendaItem extends AgendaBase {
 export interface ProductionAgendaItem extends AgendaBase {
   kind: 'production'
   action: ProductionAction
-  /** confirm: pending · fillQuantity: pending without a quantity · deliver: IN_PRODUCTION + PRODUCED · review: needing review. */
+  /** confirm: pending · deliver: IN_PRODUCTION + PRODUCED · review: needing review. */
   count: number
-  /** Pending SKUs without a saved quantity (confirm / fillQuantity). */
-  missingQty: number
   /** Production deadline (launch − lead days). */
   deadline: ISODate
   overdueDays: number
@@ -205,7 +203,7 @@ export type AgendaItem = TaskAgendaItem | BuyerAgendaItem | ProposalAgendaItem |
 /** The production counts home rows read (toProductionBrief). */
 export type ProductionBrief = Pick<
   ProductionSummary,
-  'state' | 'deadline' | 'daysToDeadline' | 'pending' | 'missingQty' | 'inProduction' | 'produced' | 'delivered' | 'confirmed' | 'undelivered' | 'flagged' | 'overdueDays'
+  'state' | 'deadline' | 'daysToDeadline' | 'pending' | 'inProduction' | 'produced' | 'delivered' | 'confirmed' | 'undelivered' | 'flagged' | 'overdueDays'
 >
 
 export interface HomeProject {

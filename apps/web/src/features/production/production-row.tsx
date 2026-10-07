@@ -2,6 +2,7 @@ import { productionFlagLabel, productionRowActions, productionStatusLabel } from
 import {
   CalendarClockIcon,
   EllipsisIcon,
+  HashIcon,
   HistoryIcon,
   PackageCheckIcon,
   PackageXIcon,
@@ -22,7 +23,7 @@ import { ItemHistory } from './item-history'
 import { flagStripText, keepCopy, keptNote, rowMeta, statusSubLine, type SubLine } from './model'
 import { QuantityCell } from './quantity-cell'
 import { StatusChip } from './status-chip'
-import type { DraftsModel, ProductionModel, ProductionRow, ProductionTabAction } from './types'
+import type { ProductionModel, ProductionRow, ProductionTabAction } from './types'
 
 type OnAction = (a: ProductionTabAction) => void
 
@@ -35,11 +36,12 @@ const SUB_TONE: Record<SubLine['tone'], string> = {
   danger: 'font-medium text-danger',
   warning: 'font-medium text-warning-foreground',
   success: 'text-success',
+  info: 'font-medium text-info',
   muted: 'text-muted-foreground',
 }
 
-function StatusLines({ row, word }: { row: ProductionRow; word: string }) {
-  const sub = statusSubLine(row)
+function StatusLines({ row, word, today }: { row: ProductionRow; word: string; today: string }) {
+  const sub = statusSubLine(row, today)
   if (!sub && !row.needsReview) return null
   return (
     <>
@@ -90,6 +92,7 @@ function RowMenu({ row, model, onAction }: { row: ProductionRow; model: Producti
   const id = row.productId
   const backToPending = a.backTo === 'PENDING'
   const decide = !!(a.backTo || a.cancel || a.skip || a.restoreTo)
+  const edit = a.editDates || a.editQuantity
 
   return (
     <ItemHistory row={row} model={model} open={historyOpen} onOpenChange={setHistoryOpen} mobile={isMobile}>
@@ -108,9 +111,14 @@ function RowMenu({ row, model, onAction }: { row: ProductionRow; model: Producti
             toHistory.current = false
           }}
         >
+          {a.editQuantity && (
+            <DropdownMenuItem onSelect={() => onAction({ kind: 'editQty', productId: id })}>
+              <HashIcon /> แก้จำนวนผลิต…
+            </DropdownMenuItem>
+          )}
           {a.editDates && (
             <DropdownMenuItem onSelect={() => onAction({ kind: 'dates', productId: id })}>
-              <CalendarClockIcon /> แก้วันที่…
+              <CalendarClockIcon /> {row.status === 'IN_PRODUCTION' ? 'แก้วันที่ต้องการสินค้า…' : 'แก้วันที่…'}
             </DropdownMenuItem>
           )}
           {a.backTo && (
@@ -133,7 +141,7 @@ function RowMenu({ row, model, onAction }: { row: ProductionRow; model: Producti
               <RotateCcwIcon /> กู้คืน
             </DropdownMenuItem>
           )}
-          {(a.editDates || decide) && <DropdownMenuSeparator />}
+          {(edit || decide) && <DropdownMenuSeparator />}
           <DropdownMenuItem
             onSelect={() => {
               toHistory.current = true
@@ -186,28 +194,16 @@ function FlagStrip({ row, model, onAction }: { row: ProductionRow; model: Produc
   )
 }
 
-/** One SKU (§5.9): product, passing stores, quantity, status, the forward step and the ⋯ menu. */
-export function ProductionRowView({
-  row,
-  model,
-  drafts,
-  onAction,
-  onSave,
-}: {
-  row: ProductionRow
-  model: ProductionModel
-  drafts: DraftsModel
-  onAction: OnAction
-  onSave: () => void
-}) {
+/** One SKU (§5.9): product, passing stores, quantity (read only), status, the forward step and the ⋯ menu. */
+export function ProductionRowView({ row, model, onAction }: { row: ProductionRow; model: ProductionModel; onAction: OnAction }) {
   const { product, item } = row
   const word = model.storeWord
   const meta = rowMeta(row, model.userName)
   const a = productionRowActions(row, { canWork: model.canWork, canDecide: model.canDecide })
   const forward = a.advanceTo === 'PRODUCED' || a.advanceTo === 'DELIVERED' ? a.advanceTo : null
   const muted = row.status === 'CANCELLED'
-  const statusLines = <StatusLines row={row} word={word} />
-  const hasLines = !!statusSubLine(row) || row.needsReview
+  const statusLines = <StatusLines row={row} word={word} today={model.today} />
+  const hasLines = !!statusSubLine(row, model.today) || row.needsReview
 
   return (
     <li className={cn(ROW, 'py-3 @3xl:items-center')}>
@@ -239,7 +235,7 @@ export function ProductionRowView({
       </div>
 
       <div className="col-span-2 min-w-0 @3xl:col-span-1">
-        <QuantityCell row={row} model={model} drafts={drafts} onSave={onSave} />
+        <QuantityCell row={row} />
       </div>
 
       <div className="hidden min-w-0 space-y-1 @3xl:block">

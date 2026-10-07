@@ -1,6 +1,6 @@
 import { PREV_PRODUCTION, productionStatusLabel, restoreTarget } from '@flowtrade/shared'
 import { FactoryIcon, InfoIcon, RotateCwIcon, TriangleAlertIcon } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 import type { ProposalDetail } from '@/api'
@@ -11,32 +11,27 @@ import { Callout } from '@/features/wizard/choice-card'
 import { formatDate } from '@/lib/format'
 import { AdvanceDialog } from './advance-dialog'
 import { CancelDialog } from './cancel-dialog'
-import { ConfirmDialog } from './confirm-dialog'
+import { ConfirmDialog, type TypedQty } from './confirm-dialog'
 import { DatesDialog } from './dates-dialog'
 import { DeadlineTimeline } from './deadline-timeline'
-import { useBackProduction, useKeepProduction, useProductionModel, useQuantityDrafts, useRestoreProduction } from './hooks'
+import { useBackProduction, useKeepProduction, useProductionModel, useRestoreProduction } from './hooks'
 import { flagCalloutText, keepCopy, nextCard, PROD_ERR } from './model'
 import { NextCard } from './next-card'
 import { ProductionTable } from './production-table'
-import { focusQty } from './utils'
-import type { DraftsModel, ProductionModel, ProductionTabAction } from './types'
+import { QuantityDialog } from './quantity-dialog'
+import type { ProductionModel, ProductionTabAction } from './types'
 
-type DialogTarget = { kind: 'confirm' } | { kind: 'advance'; to: 'PRODUCED' | 'DELIVERED'; ids?: string[] } | { kind: 'dates' | 'cancel'; productId: string }
+type DialogTarget = { kind: 'confirm' } | { kind: 'advance'; to: 'PRODUCED' | 'DELIVERED'; ids?: string[] } | { kind: 'dates' | 'cancel' | 'qty'; productId: string }
 
 /** The open dialog; kept (with open: false) while it animates out. `key` remounts it fresh on every open. */
 type DialogState = DialogTarget & { key: number; open: boolean }
 
-/** What "ยืนยันเริ่มผลิต" leads to now (button and the home ?do=confirm link): the dialog, or a toast + the input to fix (K24). */
-type ConfirmCheck = { open: true } | { open: false; level: 'info' | 'error'; text: string; focusId: string | null; attempted: boolean }
+/** What "ยืนยันเริ่มผลิต" leads to now (button and the home ?do=confirm link): the dialog (quantities are entered there), or a toast. */
+type ConfirmCheck = { open: true } | { open: false; text: string }
 
-function confirmCheck(model: ProductionModel, drafts: DraftsModel): ConfirmCheck {
-  const no = (level: 'info' | 'error', text: string, focusId: string | null = null, attempted = false): ConfirmCheck => ({ open: false, level, text, focusId, attempted })
-  if (!model.canDecide) return no('info', PROD_ERR.confirmOnly)
-  if (model.summary.pending === 0) return no('info', 'ไม่มี SKU ที่รอยืนยันแล้ว')
-  const invalid = drafts.invalidPendingRows[0]
-  if (invalid) return no('error', 'แก้ช่องที่ไม่ถูกต้องก่อน', invalid.productId)
-  const missing = drafts.missingRows
-  if (missing.length > 0) return no('info', PROD_ERR.missingQty(missing.length), model.canWork ? missing[0].productId : null, true)
+function confirmCheck(model: ProductionModel): ConfirmCheck {
+  if (!model.canDecide) return { open: false, text: PROD_ERR.confirmOnly }
+  if (model.summary.pending === 0) return { open: false, text: 'ไม่มี SKU ที่รอยืนยันแล้ว' }
   return { open: true }
 }
 
@@ -45,10 +40,14 @@ interface Props {
   onGoToPresentation: () => void
 }
 
-/** "รอผลิต" tab: SKUs that passed a buyer, their quantities, the one-press confirmation and the production steps. */
+/** "รอผลิต" tab: SKUs that passed a buyer, the confirmation (quantities + "วันที่ต้องการสินค้า") and the production steps. */
 export function ProductionTab({ proposal, onGoToPresentation }: Props) {
   const model = useProductionModel(proposal)
-  const drafts = useQuantityDrafts(model)
+  const [typedTexts, setTypedTexts] = useState<Record<string, string>>({})
+  const typed = useMemo<TypedQty>(
+    () => ({ texts: typedTexts, set: (productId, text) => setTypedTexts((prev) => ({ ...prev, [productId]: text })), clear: () => setTypedTexts({}) }),
+    [typedTexts],
+  )
   const [params, setParams] = useSearchParams()
   const [dialog, setDialog] = useState<DialogState | null>(null)
   const [confirm, confirmDialog] = useConfirm()
@@ -63,33 +62,21 @@ export function ProductionTab({ proposal, onGoToPresentation }: Props) {
 
   function runConfirm(check: ConfirmCheck) {
     if (check.open) return openDialog({ kind: 'confirm' })
-    if (check.attempted) drafts.setAttempted(true)
-    if (check.level === 'error') toast.error(check.text)
-    else toast.info(check.text)
-    if (check.focusId) focusQty(check.focusId)
+    toast.info(check.text)
   }
 
   // Home deep link ?do=confirm: once the view has loaded, the same check as the button; `do` then leaves the URL.
   const deepKey = params.get('do') === 'confirm' && !model.isLoading ? 'confirm' : null
-  const deepCheck = deepKey && !model.isError ? confirmCheck(model, drafts) : null
-  const deepNotice = deepCheck && !deepCheck.open ? deepCheck : null
+  const deepCheck = deepKey && !model.isError ? confirmCheck(model) : null
   const [deepSeen, setDeepSeen] = useState<string | null>(null)
   if (deepKey !== deepSeen) {
     setDeepSeen(deepKey)
     if (deepCheck?.open) setDialog((prev) => ({ kind: 'confirm', key: (prev?.key ?? 0) + 1, open: true }))
-    if (deepNotice?.attempted) drafts.setAttempted(true)
   }
-  const noticeText = deepNotice?.text ?? null
-  const noticeLevel = deepNotice?.level ?? null
-  const noticeFocus = deepNotice?.focusId ?? null
+  const noticeText = deepCheck && !deepCheck.open ? deepCheck.text : null
   useEffect(() => {
     if (!deepKey) return
-    if (noticeText) {
-      if (noticeLevel === 'error') toast.error(noticeText, { id: 'production-deep-link' })
-      else toast.info(noticeText, { id: 'production-deep-link' })
-      // After the URL update re-renders the rows.
-      if (noticeFocus) setTimeout(() => focusQty(noticeFocus), 100)
-    }
+    if (noticeText) toast.info(noticeText, { id: 'production-deep-link' })
     setParams(
       (prev) => {
         const p = new URLSearchParams(prev)
@@ -99,16 +86,7 @@ export function ProductionTab({ proposal, onGoToPresentation }: Props) {
       },
       { replace: true },
     )
-  }, [deepKey, noticeText, noticeLevel, noticeFocus, setParams])
-
-  // Unsaved quantities: ask before the page goes away.
-  const dirty = drafts.dirtyRows.length > 0
-  useEffect(() => {
-    if (!dirty) return
-    const onBeforeUnload = (e: BeforeUnloadEvent) => e.preventDefault()
-    window.addEventListener('beforeunload', onBeforeUnload)
-    return () => window.removeEventListener('beforeunload', onBeforeUnload)
-  }, [dirty])
+  }, [deepKey, noticeText, setParams])
 
   async function onBack(productId: string) {
     const row = model.rowById.get(productId)
@@ -174,7 +152,7 @@ export function ProductionTab({ proposal, onGoToPresentation }: Props) {
   function onAction(a: ProductionTabAction) {
     switch (a.kind) {
       case 'confirm':
-        return runConfirm(confirmCheck(model, drafts))
+        return runConfirm(confirmCheck(model))
       case 'advance':
         return openDialog({ kind: 'advance', to: a.to, ids: a.ids })
       case 'dates':
@@ -187,7 +165,7 @@ export function ProductionTab({ proposal, onGoToPresentation }: Props) {
       case 'keep':
         return void onKeep(a.productId)
       case 'editQty':
-        return focusQty(a.productId)
+        return openDialog({ kind: 'qty', productId: a.productId })
       case 'goPresentation':
         return onGoToPresentation()
     }
@@ -223,7 +201,7 @@ export function ProductionTab({ proposal, onGoToPresentation }: Props) {
       />
     )
   else {
-    const card = nextCard({ summary: model.summary, rows: model.rows, canWork: model.canWork, canDecide: model.canDecide, word, today: model.today, missingNow: drafts.missingRows.length })
+    const card = nextCard({ summary: model.summary, rows: model.rows, canWork: model.canWork, canDecide: model.canDecide, word, today: model.today })
     body = (
       <>
         {!cancelled && <NextCard card={card} onAction={onAction} />}
@@ -233,7 +211,7 @@ export function ProductionTab({ proposal, onGoToPresentation }: Props) {
           </Callout>
         )}
         <DeadlineTimeline model={model} />
-        <ProductionTable model={model} drafts={drafts} onAction={onAction} />
+        <ProductionTable model={model} onAction={onAction} />
       </>
     )
   }
@@ -246,25 +224,27 @@ export function ProductionTab({ proposal, onGoToPresentation }: Props) {
         </Callout>
       )}
       {body}
-      {dialog && <DialogHost dialog={dialog} model={model} drafts={drafts} onClose={closeDialog} />}
+      {dialog && <DialogHost dialog={dialog} model={model} typed={typed} onClose={closeDialog} />}
       {confirmDialog}
     </div>
   )
 }
 
-function DialogHost({ dialog, model, drafts, onClose }: { dialog: DialogState; model: ProductionModel; drafts: DraftsModel; onClose: () => void }) {
+function DialogHost({ dialog, model, typed, onClose }: { dialog: DialogState; model: ProductionModel; typed: TypedQty; onClose: () => void }) {
   const onOpenChange = (open: boolean) => {
     if (!open) onClose()
   }
   switch (dialog.kind) {
     case 'confirm':
-      return <ConfirmDialog key={dialog.key} open={dialog.open} onOpenChange={onOpenChange} model={model} drafts={drafts} />
+      return <ConfirmDialog key={dialog.key} open={dialog.open} onOpenChange={onOpenChange} model={model} typed={typed} />
     case 'advance':
       return <AdvanceDialog key={dialog.key} open={dialog.open} onOpenChange={onOpenChange} model={model} to={dialog.to} initialIds={dialog.ids} />
     case 'dates':
       return <DatesDialog key={dialog.key} open={dialog.open} onOpenChange={onOpenChange} model={model} productId={dialog.productId} />
     case 'cancel':
       return <CancelDialog key={dialog.key} open={dialog.open} onOpenChange={onOpenChange} model={model} productId={dialog.productId} />
+    case 'qty':
+      return <QuantityDialog key={dialog.key} open={dialog.open} onOpenChange={onOpenChange} model={model} productId={dialog.productId} />
   }
 }
 

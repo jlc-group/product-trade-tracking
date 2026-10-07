@@ -1,9 +1,10 @@
-import { datesErrors, type ISODate, type ProductionDatesInput } from '@flowtrade/shared'
+import { datesErrors, isConfirmedStatus, latestNeededOn, productionRowActions, type ISODate, type ProductionDatesInput } from '@flowtrade/shared'
 import { useId, useState, type FormEvent } from 'react'
 import { toast } from 'sonner'
 import { DateField } from '@/components/common/date-field'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Field } from '@/features/presentation/dialog-parts'
+import { formatDate } from '@/lib/format'
 import { GoneContent, ProdDialogActions } from './dialog-parts'
 import { useEditProductionDates } from './hooks'
 import { PROD_ERR } from './model'
@@ -17,7 +18,7 @@ interface Props {
   productId: string
 }
 
-/** "แก้วันที่ {sku}": the produced (and delivered) date of a SKU already past that step. */
+/** "แก้วันที่ {sku}": "วันที่ต้องการสินค้า" of a SKU not yet delivered (owner / manager), and its produced / delivered dates once recorded (team). */
 export function DatesDialog({ open, onOpenChange, model, productId }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -30,7 +31,7 @@ export function DatesDialog({ open, onOpenChange, model, productId }: Props) {
 
 function DatesRoute({ model, productId, onDone }: { model: ProductionModel; productId: string; onDone: () => void }) {
   const [row] = useState(() => model.rowById.get(productId))
-  if (!row?.item || (row.status !== 'PRODUCED' && row.status !== 'DELIVERED')) return <GoneContent />
+  if (!row?.item || !isConfirmedStatus(row.status)) return <GoneContent />
   return <DatesForm model={model} row={row} onDone={onDone} />
 }
 
@@ -39,22 +40,27 @@ function DatesForm({ model, row, onDone }: { model: ProductionModel; row: Produc
   const edit = useEditProductionDates(model.proposal)
   const item = row.item!
   const today = model.today
+  const produced = row.status === 'PRODUCED' || row.status === 'DELIVERED'
   const delivered = row.status === 'DELIVERED'
+  // The due date is the owner's / a manager's call (like lead days), and frozen once delivered.
+  const canNeed = productionRowActions(row, { canWork: model.canWork, canDecide: model.canDecide }).editNeededOn
+  const [neededOn, setNeededOn] = useState<ISODate | null>(row.dueOn)
   const [producedOn, setProducedOn] = useState<ISODate | null>(item.producedOn)
   const [deliveredOn, setDeliveredOn] = useState<ISODate | null>(item.deliveredOn)
   const [submitted, setSubmitted] = useState(false)
 
   const patch: ProductionDatesInput = {}
-  if (producedOn && producedOn !== item.producedOn) patch.producedOn = producedOn
+  if (canNeed && neededOn && neededOn !== row.dueOn) patch.neededOn = neededOn
+  if (produced && producedOn && producedOn !== item.producedOn) patch.producedOn = producedOn
   if (delivered && deliveredOn && deliveredOn !== item.deliveredOn) patch.deliveredOn = deliveredOn
   const unchanged = Object.keys(patch).length === 0
-  const errors = datesErrors(item, patch, today, PROD_ERR)
+  const errors = datesErrors(item, patch, today, model.targetDate, PROD_ERR)
   const shown = submitted ? errors : {}
 
   async function submit(e: FormEvent) {
     e.preventDefault()
     setSubmitted(true)
-    if (unchanged || errors.producedOn || errors.deliveredOn) return
+    if (unchanged || errors.neededOn || errors.producedOn || errors.deliveredOn) return
     try {
       await edit.mutateAsync({ productId: row.productId, input: patch })
       toast.success('แก้วันที่แล้ว')
@@ -71,11 +77,38 @@ function DatesForm({ model, row, onDone }: { model: ProductionModel; row: Produc
         <DialogTitle className="pr-6 leading-snug">แก้วันที่ {row.product.sku}</DialogTitle>
         <DialogDescription>{proposalLine(model.proposal)}</DialogDescription>
       </DialogHeader>
-      <Field id={`${id}-produced`} label="วันที่ผลิตเสร็จ" required error={shown.producedOn}>
-        <DateField id={`${id}-produced`} value={producedOn} onChange={setProducedOn} min={item.startedOn} max={delivered ? (deliveredOn ?? today) : today} clearable={false} className="w-full sm:w-60" />
-      </Field>
+      {canNeed && (
+        <Field id={`${id}-need`} label="วันที่ต้องการสินค้า" required error={shown.neededOn} hint={`กำหนดส่งเข้าคลัง/${model.storeWord}ของ SKU นี้ — ส่งหลังวันนี้นับว่าส่งช้า`}>
+          <DateField
+            id={`${id}-need`}
+            value={neededOn}
+            onChange={setNeededOn}
+            min={today}
+            max={latestNeededOn(today, model.targetDate)}
+            clearable={false}
+            className="w-full sm:w-60"
+          />
+        </Field>
+      )}
+      {produced && (
+        <Field
+          id={`${id}-produced`}
+          label="วันที่ผลิตเสร็จ"
+          required
+          error={shown.producedOn}
+          hint={!canNeed && !delivered ? `กำหนดส่ง ${formatDate(row.dueOn)}` : undefined}
+        >
+          <DateField id={`${id}-produced`} value={producedOn} onChange={setProducedOn} min={item.startedOn} max={delivered ? (deliveredOn ?? today) : today} clearable={false} className="w-full sm:w-60" />
+        </Field>
+      )}
       {delivered && (
-        <Field id={`${id}-delivered`} label="วันที่ส่ง" required error={shown.deliveredOn}>
+        <Field
+          id={`${id}-delivered`}
+          label="วันที่ส่ง"
+          required
+          error={shown.deliveredOn}
+          hint={item.dueOn ? `กำหนดส่ง ${formatDate(item.dueOn)}` : undefined}
+        >
           <DateField id={`${id}-delivered`} value={deliveredOn} onChange={setDeliveredOn} min={producedOn} max={today} clearable={false} className="w-full sm:w-60" />
         </Field>
       )}

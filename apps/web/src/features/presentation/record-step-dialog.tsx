@@ -100,7 +100,7 @@ const CHOICE_TITLE: Record<RecordMode, string> = {
 }
 
 const CHOICE_LOOK: Record<RecordChoice, { tone: 'info' | 'success' | 'warning' | 'danger'; title: string; desc: string }> = {
-  pending: { tone: 'info', title: 'ยังไม่ทราบผล', desc: 'Buyer ขอเวลาพิจารณา' },
+  pending: { tone: 'info', title: 'นำเสนอแล้ว', desc: 'Buyer ขอเวลาพิจารณา' },
   passed: { tone: 'success', title: 'ผ่าน', desc: 'Buyer รับสินค้าเข้าขาย' },
   needsInfo: { tone: 'warning', title: 'ต้องการข้อมูลเพิ่ม', desc: 'ยังไม่ตัดสิน ขอข้อมูลหรือตัวอย่างเพิ่ม' },
   rejected: { tone: 'danger', title: 'ไม่ผ่าน', desc: 'Buyer ไม่รับสินค้า — ต้องระบุเหตุผล' },
@@ -134,7 +134,7 @@ function NewStepForm({
   const [choice, setChoice] = useState<RecordChoice | null>(mode === 'infoSent' ? 'infoSent' : null)
   const [submitted, setSubmitted] = useState(false)
 
-  // "ใช้ผลเดียวกันกับห้างอื่น" (D12): other stores in the same stage, for "ยังไม่ทราบผล" and an all-SKU "ผ่าน" only.
+  // "ใช้ผลเดียวกันกับห้างอื่น" (D12): other stores in the same stage, for "นำเสนอแล้ว" and an all-SKU "ผ่าน" only.
   const others = saving?.others ?? (mode === 'infoSent' ? [] : model.views.filter((v) => v.inProposal && v.stage === expectStage && v.track.id !== view.track.id))
   const [extraIds, setExtraIds] = useState<string[]>(() =>
     extraTrackIds.map((t) => model.viewById.get(t)?.store.id).filter((s): s is string => !!s && others.some((o) => o.store.id === s)),

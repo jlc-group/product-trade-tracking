@@ -256,6 +256,7 @@ export const homeItemSelect = {
   status: true,
   quantity: true,
   confirmedAt: true,
+  neededOn: true,
   deliveredOn: true,
   dueOn: true,
   ackStoreIds: true,
