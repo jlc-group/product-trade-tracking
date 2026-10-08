@@ -33,7 +33,7 @@ import { ProposalAccessService } from '../../common/proposal-access.service.js'
 import type { Prisma } from '../../generated/prisma/client.js'
 import { PrismaService, type Db } from '../../prisma/prisma.service.js'
 import { loadProductionDerived, notifyProductionChanges } from '../production/production.state.js'
-import { lockProposal } from '../tasks/task-tree.js'
+import { lockProposal, TaskTree } from '../tasks/task-tree.js'
 import type { CreateProposalBody, DuplicateBody, StatusBody, TargetDateBody, UpdateProposalBody } from './proposals.schemas.js'
 
 const memberNotice = (p: Pick<Proposal, 'id' | 'code' | 'title'>) => ({
@@ -306,6 +306,11 @@ export class ProposalsService {
         data: { status, completedAt: status === 'COMPLETED' ? now : null, updatedAt: now },
         include: proposalInclude,
       })
+      // Back to work: rows a closed proposal kept from before the auto-completion rule follow it again.
+      if (status === 'DRAFT' || status === 'IN_PROGRESS' || status === 'ON_HOLD') {
+        const tree = await TaskTree.load(tx, id)
+        if (tree.rederive(user.id, now).length > 0) await tree.flush(tx, now)
+      }
       const label = STATUS_LABEL[status]
       await this.activity.log(tx, user, 'proposal.status', 'PROPOSAL', id, id, `เปลี่ยนสถานะ ${proposal.code} เป็น "${label}"`)
       await this.activity.notify(
@@ -434,6 +439,10 @@ export class ProposalsService {
         }
         await tx.task.createMany({ data: tasks })
         if (assignees.length > 0) await tx.taskAssignee.createMany({ data: assignees })
+        // Copied tables keep their values: a task whose table (and sub tasks) are complete starts done.
+        const tree = await TaskTree.load(tx, row.id)
+        const at = new Date()
+        if (tree.rederive(user.id, at).length > 0) await tree.flush(tx, at)
       }
 
       await this.activity.log(tx, user, 'proposal.duplicate', 'PROPOSAL', row.id, row.id, `คัดลอกจาก ${source.code} เป็น ${row.code} (${storeNames.join(', ')})`)

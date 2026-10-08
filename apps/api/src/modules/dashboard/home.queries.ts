@@ -58,6 +58,8 @@ export const agendaTaskSelect = {
   dueDate: true,
   priority: true,
   responsible: true,
+  descriptionFormat: true,
+  detailFields: true,
   assignees: { select: { userId: true }, orderBy: { assignedAt: 'asc' } },
   // Max depth is 3, so two parent hops give the whole path.
   parent: { select: { title: true, parent: { select: { title: true } } } },
@@ -148,13 +150,20 @@ export function loadProjectRows(db: Db, me: string, today: ISODate, orgWide: boo
     FROM ${PROPOSALS} p
     JOIN ${SHELF_TYPES} st ON st.id = p.shelf_type_id
     LEFT JOIN ${PLANS} pl ON pl.proposal_id = p.id
+    -- Work units (shared workUnits): every leaf, plus a parent with a table of its own (done when that table is full).
+    -- Overdue stays leaf-only, like the badge.
     CROSS JOIN LATERAL (
-      SELECT count(*)::int AS total,
-             count(*) FILTER (WHERE t.is_done)::int AS done,
-             count(*) FILTER (WHERE NOT t.is_done AND t.due_date < ${today}::date)::int AS overdue
-      FROM ${TASKS} t
-      WHERE t.proposal_id = p.id
-        AND NOT EXISTS (SELECT 1 FROM ${TASKS} c WHERE c.proposal_id = p.id AND c.parent_id = t.id)
+      SELECT count(*) FILTER (WHERE u.leaf OR u.tbl)::int AS total,
+             count(*) FILTER (WHERE (u.leaf AND u.is_done) OR (NOT u.leaf AND u.tbl AND u.filled))::int AS done,
+             count(*) FILTER (WHERE u.leaf AND NOT u.is_done AND u.due_date < ${today}::date)::int AS overdue
+      FROM (
+        SELECT t.is_done, t.due_date,
+               NOT EXISTS (SELECT 1 FROM ${TASKS} c WHERE c.proposal_id = p.id AND c.parent_id = t.id) AS leaf,
+               (t.description_format::text = 'FIELDS' AND jsonb_array_length(t.detail_fields) > 0) AS tbl,
+               NOT EXISTS (SELECT 1 FROM jsonb_array_elements(t.detail_fields) e WHERE btrim(COALESCE(e->>'value', '')) = '') AS filled
+        FROM ${TASKS} t
+        WHERE t.proposal_id = p.id
+      ) u
     ) lf
     CROSS JOIN LATERAL (
       SELECT COALESCE(json_agg(json_build_object(

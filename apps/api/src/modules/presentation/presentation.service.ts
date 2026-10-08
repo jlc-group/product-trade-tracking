@@ -136,9 +136,10 @@ export class PresentationService {
     return reduceTrack(track, { packages: data.packages })
   }
 
-  /** Prep gate: every task of the proposal done (leaf progress, as the proposal page counts it). */
+  /** Prep gate: every work unit of the proposal done (computeProgress, as the proposal page counts it). */
   private async assertGate(db: Db, proposalId: string) {
-    const progress = computeProgress(await db.task.findMany({ where: { proposalId }, select: { id: true, parentId: true, isDone: true } }))
+    const rows = await db.task.findMany({ where: { proposalId }, select: { id: true, parentId: true, isDone: true, descriptionFormat: true, detailFields: true } })
+    const progress = computeProgress(rows.map((r) => ({ ...r, detailFields: readDetailFields(r.detailFields) })))
     if (!canStartPresentation(progress)) throw invalid(ERR.gate(progress))
   }
 

@@ -50,7 +50,3 @@ export function countDescendants(node: TaskNode): number {
   return node.children.reduce((sum, c) => sum + 1 + countDescendants(c), 0)
 }
 
-/** Descendants whose done-state differs from `isDone` — i.e. the ones a cascade would flip. */
-export function countDescendantsNot(node: TaskNode, isDone: boolean): number {
-  return node.children.reduce((sum, c) => sum + (c.isDone !== isDone ? 1 : 0) + countDescendantsNot(c, isDone), 0)
-}

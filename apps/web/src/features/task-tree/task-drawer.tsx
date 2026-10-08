@@ -1,4 +1,4 @@
-import { canToggleTask, LEVEL_LABEL, PRIORITY_ORDER, type TaskNode, type User } from '@flowtrade/shared'
+import { autoCompletionHint, canToggleTask, completionMode, detailFieldsProgress, LEVEL_LABEL, PRIORITY_ORDER, type TaskNode, type User } from '@flowtrade/shared'
 import { CopyIcon, FolderInputIcon, SearchXIcon, Trash2Icon, UserPlusIcon } from 'lucide-react'
 import { Fragment, useId, useState, type ReactNode } from 'react'
 import { PriorityBadge } from '@/components/common/badges'
@@ -198,9 +198,18 @@ function DrawerBody({ node, tree, focusComments }: { node: TaskNode; tree: TreeD
 function StatusCard({ node }: { node: TaskNode }) {
   const { me, proposal, cancelled, usersById, actions } = useTreeEnv()
   const id = useId()
-  const canToggle = !cancelled && canToggleTask(me, proposal, node)
   const hasChildren = node.children.length > 0
+  // Ticked by hand only without a table or sub tasks; otherwise it follows them (shared completion rules).
+  const mode = completionMode(node, hasChildren)
+  const auto = mode !== 'manual'
+  const allowed = !cancelled && canToggleTask(me, proposal, node)
+  const canToggle = allowed && !auto
   const completer = node.completedById ? usersById.get(node.completedById) : undefined
+  const table = mode === 'table' || mode === 'both' ? detailFieldsProgress(node.detailFields) : null
+  const waiting = [
+    table && `กรอกตารางแล้ว ${table.filled}/${table.total}`,
+    hasChildren && `Sub task เสร็จ ${node.children.filter((c) => c.isDone).length}/${node.children.length}`,
+  ].filter(Boolean)
 
   const box = <Checkbox id={id} checked={node.isDone} disabled={!canToggle} onCheckedChange={(v) => actions.toggle(node, v === true)} className="size-5 bg-background" />
 
@@ -215,18 +224,18 @@ function StatusCard({ node }: { node: TaskNode }) {
               {box}
             </span>
           </TooltipTrigger>
-          <TooltipContent>{cancelled ? 'โปรเจกต์นี้ถูกยกเลิกแล้ว' : 'ทำเครื่องหมายได้เฉพาะทีมงานโปรเจกต์หรือผู้รับผิดชอบงานนี้'}</TooltipContent>
+          <TooltipContent>{cancelled ? 'โปรเจกต์นี้ถูกยกเลิกแล้ว' : auto ? autoCompletionHint(mode) : 'ทำเครื่องหมายได้เฉพาะทีมงานโปรเจกต์หรือผู้รับผิดชอบงานนี้'}</TooltipContent>
         </Tooltip>
       )}
       <div className="min-w-0 flex-1 space-y-0.5">
         <Label htmlFor={id} className={cn('text-sm', node.isDone && 'text-success')}>
-          {node.isDone ? 'เสร็จแล้ว' : canToggle ? 'ยังไม่เสร็จ — ติ๊กเมื่อทำเสร็จ' : 'ยังไม่เสร็จ'}
+          {node.isDone ? (auto ? 'เสร็จแล้ว (ติ๊กอัตโนมัติ)' : 'เสร็จแล้ว') : canToggle ? 'ยังไม่เสร็จ — ติ๊กเมื่อทำเสร็จ' : auto ? 'ยังไม่เสร็จ — ติ๊กให้อัตโนมัติเมื่อครบ' : 'ยังไม่เสร็จ'}
         </Label>
         <p className="text-xs text-muted-foreground">
           {node.isDone && node.completedAt
             ? `${completer ? `โดย ${completer.nickname || completer.name} · ` : ''}${fromNow(node.completedAt)}`
-            : hasChildren
-              ? `เสร็จ ${node.progress.done} จาก ${node.progress.total} รายการย่อย — งานนี้จะเสร็จเองเมื่อรายการย่อยครบ`
+            : auto
+              ? waiting.join(' · ')
               : node.dueDate
                 ? `ครบกำหนด ${formatDate(node.dueDate)} (${relativeDay(node.dueDate)})`
                 : 'ยังไม่ได้กำหนดวันครบกำหนด'}
@@ -375,13 +384,15 @@ function ChildrenSection({ node }: { node: TaskNode }) {
       {node.children.length > 0 && (
         <ul className="divide-y rounded-lg border">
           {node.children.map((c) => {
-            const canToggle = !cancelled && canToggleTask(me, proposal, c)
+            const childMode = completionMode(c, c.children.length > 0)
+            const canToggle = !cancelled && canToggleTask(me, proposal, c) && childMode === 'manual'
             const users = c.assigneeIds.map((a) => usersById.get(a)).filter((u): u is User => !!u)
             return (
               <li key={c.id} className="flex min-h-10 items-center gap-2.5 px-3 py-1.5">
                 <Checkbox
                   checked={c.isDone}
                   disabled={!canToggle}
+                  title={childMode !== 'manual' ? autoCompletionHint(childMode) : undefined}
                   onCheckedChange={(v) => actions.toggle(c, v === true)}
                   aria-label={c.isDone ? `ยกเลิกเครื่องหมายเสร็จของ “${c.title}”` : `ทำเครื่องหมายว่า “${c.title}” เสร็จแล้ว`}
                 />

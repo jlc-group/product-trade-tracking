@@ -2,7 +2,7 @@
 // List items and detail read models for /proposals.
 // Exported via ProposalsModule so the dashboard can build the same list items.
 import { Injectable } from '@nestjs/common'
-import { can, computeProgress, isOverdue, todayBangkok, type ISODate, type Proposal, type ProposalSummary, type User } from '@flowtrade/shared'
+import { can, computeProgress, isOverdue, readDetailFields, todayBangkok, type ISODate, type Proposal, type ProposalSummary, type Task, type User } from '@flowtrade/shared'
 import type { ProposalDetail, ProposalListItem } from '@flowtrade/shared/api-types'
 import { toDateOnly } from '../../common/dates.js'
 import { notFound } from '../../common/errors.js'
@@ -51,14 +51,14 @@ export function visibleWhere(user: Pick<User, 'id' | 'role'>): Prisma.ProposalWh
 
 // ---------- pure summary ----------
 
-export interface SummaryTask {
+export interface SummaryTask extends Pick<Task, 'descriptionFormat' | 'detailFields'> {
   id: string
   parentId: string | null
   isDone: boolean
   dueDate: ISODate | null
 }
 
-/** leaf progress, overdue LEAF count, open count, next open due date. */
+/** work-unit progress (computeProgress), overdue LEAF count, open count, next open due date. */
 export function summarize(proposal: Proposal, tasks: SummaryTask[], today: ISODate): ProposalSummary {
   const open = tasks.filter((x) => !x.isDone)
   const nextDue = open.map((x) => x.dueDate).filter((d): d is ISODate => !!d).sort()[0] ?? null
@@ -99,9 +99,17 @@ export class ProposalsReadService {
     if (proposalIds.length === 0) return out
     const rows = await db.task.findMany({
       where: { proposalId: { in: proposalIds } },
-      select: { id: true, proposalId: true, parentId: true, isDone: true, dueDate: true },
+      select: { id: true, proposalId: true, parentId: true, isDone: true, dueDate: true, descriptionFormat: true, detailFields: true },
     })
-    for (const r of rows) out.get(r.proposalId)?.push({ id: r.id, parentId: r.parentId, isDone: r.isDone, dueDate: toDateOnly(r.dueDate) })
+    for (const r of rows)
+      out.get(r.proposalId)?.push({
+        id: r.id,
+        parentId: r.parentId,
+        isDone: r.isDone,
+        dueDate: toDateOnly(r.dueDate),
+        descriptionFormat: r.descriptionFormat,
+        detailFields: readDetailFields(r.detailFields),
+      })
     return out
   }
 

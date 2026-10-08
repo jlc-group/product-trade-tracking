@@ -23,6 +23,7 @@ import type {
 } from './types.js'
 import type { PresentationStage, StoreSnapshot, TrackView } from './presentation.js'
 import type { ProductionSummary } from './production.js'
+import type { TaskCompletionMode } from './task-tree.js'
 
 // ---------- read models ----------
 
@@ -45,6 +46,8 @@ export interface TaskWithContext {
   stores: Store[]
   /** Titles of ancestors, top-down. */
   path: string[]
+  /** 'manual' = ticked by hand; otherwise done follows its table / sub tasks (completionMode). */
+  completion: TaskCompletionMode
   /** A leaf task of an IN_PROGRESS proposal: the only kind the overdue counts include (GET /tasks/mine). */
   countable?: boolean
 }
@@ -56,6 +59,8 @@ export interface TaskRowItem {
   stores: StoreSnapshot[]
   /** Titles of ancestors, top-down. */
   path: string[]
+  /** 'manual' = ticked by hand; otherwise done follows its table / sub tasks (completionMode). */
+  completion: TaskCompletionMode
 }
 
 export interface CommentWithAuthor extends Comment {

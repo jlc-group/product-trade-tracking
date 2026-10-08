@@ -7,6 +7,7 @@ import {
   canRecordPresentation,
   compareAgenda,
   compareProjects,
+  completionMode,
   countByBucket,
   deriveProduction,
   inResultsWindow,
@@ -21,6 +22,7 @@ import {
   projectPhase,
   proposalAgendaAction,
   proposalHealth,
+  readDetailFields,
   reduceTrack,
   responsibleIdsOf,
   RESULTS_MAX_ITEMS,
@@ -270,6 +272,8 @@ function taskItems(rows: HomeRows['tasks'], projects: Map<string, ProjectRow>, t
       },
       stores: project.stores.map((s) => s.store),
       path: [row.parent?.parent?.title, row.parent?.title].filter((t): t is string => t !== undefined),
+      // Agenda tasks are leaves: only a table can make one automatic.
+      completion: completionMode({ descriptionFormat: row.descriptionFormat, detailFields: readDetailFields(row.detailFields) }, false),
     })
   }
   return { items, laterTasks, parkedTasks }

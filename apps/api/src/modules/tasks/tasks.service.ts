@@ -2,9 +2,11 @@ import { randomUUID } from 'node:crypto'
 import { Injectable } from '@nestjs/common'
 import {
   applyDetailPatch,
+  autoCompletionHint,
   canManageTasks,
   canToggleTask,
   checkMove,
+  completionMode,
   computeProgress,
   computeToggle,
   DESCRIPTION_FORMAT_LABEL,
@@ -19,6 +21,7 @@ import {
   readDetailFields,
   todayBangkok,
   type Progress,
+  type Proposal,
   type Task,
   type TaskLevel,
   type User,
@@ -130,6 +133,7 @@ export class TasksService {
         stores: toStores(row.proposal.stores),
         path: [row.parent?.parent?.title, row.parent?.title].filter((t): t is string => t !== undefined),
         countable,
+        completion: completionMode(task, row._count.children > 0),
       }))
   }
 
@@ -165,13 +169,15 @@ export class TasksService {
         completedAt: null,
         completedById: null,
         updatedAt: now,
+        descriptionFormat: 'TEXT',
+        detailFields: [],
       }
       const index = input.index == null ? siblings.length : clampIndex(input.index, siblings.length)
       siblings.splice(index, 0, node)
       tree.add(node)
       tree.renumber(siblings)
       // A new open child re-opens a completed parent.
-      tree.rederiveAncestors(node.id, user.id, now)
+      tree.rederive(user.id, now)
 
       await tx.task.create({
         data: {
@@ -199,8 +205,10 @@ export class TasksService {
 
   update(user: User, id: string, patch: UpdateTaskBody): Promise<Task> {
     return this.prisma.$transaction(async (tx) => {
-      // Row lock first: concurrent edits of one task run one after another, so detailValues
-      // always merge into the latest rows (two people filling different rows both keep their data).
+      // Proposal lock first (same order as every tree edit): a table edit can tick / re-open the task and its
+      // ancestors. Then the row lock: concurrent edits of one task run one after another, so detailValues always
+      // merge into the latest rows (two people filling different rows both keep their data).
+      await lockProposal(tx, await this.proposalIdOf(tx, id))
       await tx.task.updateMany({ where: { id }, data: { updatedAt: new Date() } })
       const task = await this.findTask(tx, id)
       const proposal = await this.access.load(tx, task.proposalId)
@@ -271,11 +279,37 @@ export class TasksService {
       if (filled) notes.push(`กรอกข้อมูล ${filled} ช่อง`)
       if (patch.detailAppend?.length) notes.push(`เพิ่มหัวข้อ ${patch.detailAppend.length} แถว`)
       await this.activity.log(tx, user, 'task.update', 'TASK', id, proposal.id, `แก้ไขงาน: ${title}${notes.length ? ` (${notes.join(', ')})` : ''}`)
+      // Every edit re-derives (not only table edits), so rows left from before the rule heal on any change.
+      await this.followCompletion(tx, user, proposal, id)
       return this.findTask(tx, id)
     })
   }
 
-  /** Tick / untick with cascade. Returns every task whose state changed. */
+  /**
+   * After an edit: tasks whose completion follows their table / sub tasks are ticked or re-opened to match
+   * (the editor becomes the completer), logged as one automatic step.
+   */
+  private async followCompletion(tx: Db, user: User, proposal: Proposal, taskId: string) {
+    const now = new Date()
+    const tree = await TaskTree.load(tx, proposal.id)
+    const changed = tree.rederive(user.id, now)
+    if (changed.length === 0) return
+    await tree.flush(tx, now)
+    const done = changed[0].isDone
+    const titles = changed.map((n) => n.title).join(', ')
+    await this.activity.log(
+      tx,
+      user,
+      done ? 'task.complete' : 'task.reopen',
+      'TASK',
+      taskId,
+      proposal.id,
+      done ? `กรอกข้อมูลครบ — ทำเครื่องหมายเสร็จอัตโนมัติ: ${titles}` : `ข้อมูลไม่ครบ — เปิดงานอีกครั้งอัตโนมัติ: ${titles}`,
+    )
+    if (done && proposal.status === 'DRAFT') await tx.proposal.update({ where: { id: proposal.id }, data: { status: 'IN_PROGRESS' } })
+  }
+
+  /** Tick / untick a task done by hand; tasks with a table or sub tasks follow them (422). Returns every task whose state changed. */
   toggle(user: User, id: string, isDone: boolean): Promise<ToggleResult> {
     return this.prisma.$transaction(async (tx) => {
       const { task, proposal } = await this.openForTreeEdit(tx, user, id)
@@ -283,6 +317,8 @@ export class TasksService {
       if (proposal.status === 'CANCELLED') throw invalid('โปรเจกต์นี้ถูกยกเลิกแล้ว')
       const now = new Date()
       const tree = await TaskTree.load(tx, proposal.id)
+      const mode = completionMode(tree.require(id), tree.nodes.some((n) => n.parentId === id))
+      if (mode !== 'manual') throw invalid(autoCompletionHint(mode))
       const changes = computeToggle(tree.nodes, id, isDone)
       for (const c of changes) {
         const n = tree.require(c.id)
@@ -335,11 +371,7 @@ export class TasksService {
       tree.renumber(siblings)
       if (oldParent !== input.parentId) {
         tree.renumber(tree.siblings(oldParent))
-        if (oldParent) {
-          const remaining = tree.nodes.find((t) => t.parentId === oldParent)
-          if (remaining) tree.rederiveAncestors(remaining.id, user.id, now)
-        }
-        tree.rederiveAncestors(task.id, user.id, now)
+        tree.rederive(user.id, now)
         await this.activity.log(tx, user, 'task.move', 'TASK', task.id, proposal.id, `ย้ายงาน: ${task.title}`)
       }
       tree.touch(task)
@@ -359,17 +391,14 @@ export class TasksService {
       await tx.task.deleteMany({ where: { id: { in: [...ids] } } })
       tree.remove(ids)
       tree.renumber(tree.siblings(task.parentId))
-      if (task.parentId) {
-        const sibling = tree.nodes.find((t) => t.parentId === task.parentId)
-        if (sibling) tree.rederiveAncestors(sibling.id, user.id, now)
-      }
+      tree.rederive(user.id, now)
       await tree.flush(tx, now)
       await this.activity.log(tx, user, 'task.delete', 'TASK', id, proposal.id, `ลบงาน: ${task.title}${ids.size > 1 ? ` และงานย่อย ${ids.size - 1} รายการ` : ''}`)
       return { removed: [...ids] }
     })
   }
 
-  /** Copies the task with its subtree, right after the original; the copy starts open. */
+  /** Copies the task with its subtree, right after the original; the copy starts open unless its tables are already filled. */
   duplicate(user: User, id: string): Promise<Task> {
     return this.prisma.$transaction(async (tx) => {
       const { proposal } = await this.openForTreeEdit(tx, user, id)
@@ -395,13 +424,15 @@ export class TasksService {
         completedAt: null,
         completedById: null,
         updatedAt: now,
+        descriptionFormat: r.descriptionFormat,
+        detailFields: readDetailFields(r.detailFields),
       }))
       const root = copies.find((c) => c.id === copyId)!
       const siblings = tree.siblings(original.parentId)
       siblings.splice(siblings.findIndex((s) => s.id === id) + 1, 0, root)
       for (const c of copies) tree.add(c)
       tree.renumber(siblings)
-      tree.rederiveAncestors(copyId, user.id, now)
+      tree.rederive(user.id, now)
 
       for (const [i, r] of subtree.entries()) {
         const c = copies[i]
@@ -419,6 +450,10 @@ export class TasksService {
             dueDate: r.dueDate,
             responsible: r.responsible,
             priority: r.priority,
+            // As derived above: a copy whose table (and sub tasks) are complete starts done.
+            isDone: c.isDone,
+            completedAt: c.completedAt,
+            completedById: c.completedById,
             sortOrder: c.sortOrder,
             createdById: user.id,
             assignees: { create: assigneeRows(r.assignees.map((a) => a.userId), now) },

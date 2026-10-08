@@ -1,5 +1,5 @@
 // TanStack Query hooks — the only way pages read/write data.
-import { applyDetailPatch, computeProgress, computeToggle, type Channel, type Department, type Product, type ProposalStatus, type ShelfType, type Store, type Task, type TaskTemplate, type User } from '@flowtrade/shared'
+import { applyDetailPatch, computeProgress, computeToggle, deriveCompletion, type Channel, type Department, type Product, type ProposalStatus, type ShelfType, type Store, type Task, type TaskTemplate, type User } from '@flowtrade/shared'
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { uuid } from '@/lib/id'
@@ -282,28 +282,55 @@ function applyTaskPatch(t: Task, patch: UpdateTaskInput): Task {
   return { ...t, ...rest, detailFields: rows }
 }
 
+/** The list after a PATCH of task `id`, with the completion it implies (a filled table ticks the task and its parents). */
+export function patchTasks(tasks: Task[], id: string, patch: UpdateTaskInput) {
+  const patched = tasks.map((t) => (t.id === id ? applyTaskPatch(t, patch) : t))
+  const flips = deriveCompletion(patched)
+  const byId = new Map(flips.map((c) => [c.id, c.isDone]))
+  return { next: flips.length ? patched.map((t) => (byId.has(t.id) ? { ...t, isDone: byId.get(t.id)! } : t)) : patched, flips }
+}
+
+/** Task writes of one proposal share a key: the list is refetched only after the last one settles. */
+const taskWriteKey = (proposalId: string) => ['task-write', proposalId] as const
+
+/**
+ * Refetch after a task write — unless another write of the same proposal is still in flight (each table cell saves on
+ * its own), whose refetch would land first and briefly overwrite the newer optimistic rows with older server data.
+ */
+function settleTaskWrite(qc: ReturnType<typeof useQueryClient>, proposalId: string) {
+  if (qc.isMutating({ mutationKey: taskWriteKey(proposalId) }) > 1) return
+  invalidateWork(qc, proposalId)
+  qc.invalidateQueries({ queryKey: qk.proposal(proposalId) })
+}
+
 export function useUpdateTask(proposalId: string) {
   const qc = useQueryClient()
   return useMutation({
+    mutationKey: taskWriteKey(proposalId),
     mutationFn: ({ id, patch }: { id: string; patch: UpdateTaskInput }) => api.tasks.update(id, patch),
     onMutate: async ({ id, patch }) => {
       await qc.cancelQueries({ queryKey: qk.tasks(proposalId) })
       const previous = qc.getQueryData<Task[]>(qk.tasks(proposalId))
-      qc.setQueryData<Task[]>(qk.tasks(proposalId), (old) => old?.map((t) => (t.id === id ? applyTaskPatch(t, patch) : t)))
+      if (previous) {
+        const { next, flips } = patchTasks(previous, id, patch)
+        qc.setQueryData(qk.tasks(proposalId), next)
+        if (flips.length) qc.setQueryData<ProposalDetail>(qk.proposal(proposalId), (old) => (old ? { ...old, progress: computeProgress(next) } : old))
+      }
       return { previous }
     },
     onError: (error, _v, ctx) => {
       if (ctx?.previous) qc.setQueryData(qk.tasks(proposalId), ctx.previous)
       onError(error)
     },
-    onSettled: () => invalidateWork(qc, proposalId),
+    onSettled: () => settleTaskWrite(qc, proposalId),
   })
 }
 
-/** Optimistic tick with the same cascade rules as the server. */
+/** Optimistic tick with the same completion rules as the server. */
 export function useToggleTask(proposalId: string) {
   const qc = useQueryClient()
   return useMutation({
+    mutationKey: taskWriteKey(proposalId),
     mutationFn: ({ id, isDone }: { id: string; isDone: boolean }) => api.tasks.toggle(id, isDone),
     onMutate: async ({ id, isDone }) => {
       await qc.cancelQueries({ queryKey: qk.tasks(proposalId) })
@@ -320,10 +347,7 @@ export function useToggleTask(proposalId: string) {
       if (ctx?.previous) qc.setQueryData(qk.tasks(proposalId), ctx.previous)
       onError(error)
     },
-    onSettled: () => {
-      invalidateWork(qc, proposalId)
-      qc.invalidateQueries({ queryKey: qk.proposal(proposalId) })
-    },
+    onSettled: () => settleTaskWrite(qc, proposalId),
   })
 }
 

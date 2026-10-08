@@ -1,6 +1,6 @@
 // In-memory working copy of one proposal's task tree. Services apply the shared tree logic
-// (renumber, re-derive ancestors, cascades) to these nodes, then flush only the rows that changed.
-import { getAncestorIds, type ISODate, type TaskLevel } from '@flowtrade/shared'
+// (renumber, derive completion) to these nodes, then flush only the rows that changed.
+import { deriveCompletion, readDetailFields, type DescriptionFormat, type DetailField, type ISODate, type TaskLevel } from '@flowtrade/shared'
 import { conflict, invalid, notFound } from '../../common/errors.js'
 import type { Prisma } from '../../generated/prisma/client.js'
 import type { Db } from '../../prisma/prisma.service.js'
@@ -15,9 +15,12 @@ export interface TreeNode {
   completedAt: Date | null
   completedById: string | null
   updatedAt: Date
+  /** Read only here: what decides whether completion is derived (deriveCompletion); never flushed. */
+  descriptionFormat: DescriptionFormat
+  detailFields: DetailField[]
 }
 
-type TreeSource = Omit<TreeNode, 'level'> & { level: number }
+type TreeSource = Omit<TreeNode, 'level' | 'detailFields'> & { level: number; detailFields: unknown }
 
 const treeSelect = {
   id: true,
@@ -29,6 +32,8 @@ const treeSelect = {
   completedAt: true,
   completedById: true,
   updatedAt: true,
+  descriptionFormat: true,
+  detailFields: true,
 } satisfies Prisma.TaskSelect
 
 const sameTime = (a: Date | null, b: Date | null) => (a?.getTime() ?? null) === (b?.getTime() ?? null)
@@ -58,6 +63,8 @@ export class TaskTree {
         completedAt: r.completedAt,
         completedById: r.completedById,
         updatedAt: r.updatedAt,
+        descriptionFormat: r.descriptionFormat,
+        detailFields: readDetailFields(r.detailFields),
       })),
     )
   }
@@ -104,20 +111,21 @@ export class TaskTree {
     for (const id of ids) this.original.delete(id)
   }
 
-  /** A parent is done exactly when all of its children are done (walks up from `taskId`). */
-  rederiveAncestors(taskId: string, actorId: string, now: Date) {
-    for (const a of getAncestorIds(this.nodes, taskId)) {
-      const parent = this.get(a)
-      if (!parent) continue
-      const kids = this.nodes.filter((t) => t.parentId === a)
-      const done = kids.length > 0 && kids.every((k) => k.isDone)
-      if (parent.isDone !== done) {
-        parent.isDone = done
-        parent.completedAt = done ? now : null
-        parent.completedById = done ? actorId : null
-        this.touch(parent)
-      }
+  /**
+   * Applies the completion rules (deriveCompletion): tasks with a table and / or sub tasks follow them, the
+   * `actorId` becomes the completer. Returns the nodes whose isDone changed.
+   */
+  rederive(actorId: string, now: Date): TreeNode[] {
+    const changed: TreeNode[] = []
+    for (const c of deriveCompletion(this.nodes)) {
+      const node = this.require(c.id)
+      node.isDone = c.isDone
+      node.completedAt = c.isDone ? now : null
+      node.completedById = c.isDone ? actorId : null
+      this.touch(node)
+      changed.push(node)
     }
+    return changed
   }
 
   /** Writes every pre-existing row whose tree fields changed. */

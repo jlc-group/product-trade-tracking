@@ -1,5 +1,5 @@
 // Calendar entries in two densities: tiny cell items (month grid) and full rows (day panel / agenda).
-import { canToggleTask, storeNamesLabel, type ISODate } from '@flowtrade/shared'
+import { autoCompletionHint, canToggleTask, storeNamesLabel, type ISODate } from '@flowtrade/shared'
 import { CheckIcon } from 'lucide-react'
 import { useId, useState } from 'react'
 import { Link } from 'react-router'
@@ -93,7 +93,9 @@ export function TaskRow({ item, className }: { item: TaskWithContext; className?
   // Optimistic value, valid only while the server copy is still the one we clicked on.
   const [pending, setPending] = useState<{ value: boolean; base: boolean } | null>(null)
   const checked = pending && pending.base === task.isDone ? pending.value : task.isDone
-  const allowed = canToggleTask(user, proposal, task)
+  // A table (or sub tasks) decides this box: the system ticks it, never a click.
+  const auto = item.completion !== 'manual'
+  const allowed = canToggleTask(user, proposal, task) && !auto
 
   const onCheckedChange = (value: boolean) => {
     setPending({ value, base: task.isDone })
@@ -117,6 +119,7 @@ export function TaskRow({ item, className }: { item: TaskWithContext; className?
           id={checkboxId}
           checked={checked}
           disabled={!allowed || toggle.isPending}
+          title={item.completion !== 'manual' ? autoCompletionHint(item.completion) : undefined}
           onCheckedChange={(v) => onCheckedChange(v === true)}
           className="size-[18px] data-checked:border-success data-checked:bg-success"
         />

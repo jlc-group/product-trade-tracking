@@ -1,4 +1,4 @@
-import { canToggleTask, detailFieldsProgress, LEVEL_LABEL, PRIORITY_LABEL, PRIORITY_ORDER, type ISODate, type TaskNode, type TaskPriority, type User } from '@flowtrade/shared'
+import { autoCompletionHint, canToggleTask, completionMode, detailFieldsProgress, LEVEL_LABEL, PRIORITY_LABEL, PRIORITY_ORDER, type ISODate, type TaskNode, type TaskPriority, type User } from '@flowtrade/shared'
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core'
 import {
   ArrowDownIcon,
@@ -192,7 +192,9 @@ function DragHandle({ setActivatorNodeRef, attributes, listeners, title }: DragH
 function RowCheckbox({ node, canToggle, cancelled }: { node: TaskNode; canToggle: boolean; cancelled: boolean }) {
   const { actions } = useTreeEnv()
   const label = node.isDone ? `ยกเลิกเครื่องหมายเสร็จของ “${node.title}”` : `ทำเครื่องหมายว่า “${node.title}” เสร็จแล้ว`
-  if (canToggle) {
+  // A table and / or sub tasks decide this box: it follows them and can't be ticked by hand.
+  const mode = completionMode(node, node.children.length > 0)
+  if (canToggle && mode === 'manual') {
     return <Checkbox checked={node.isDone} onCheckedChange={(v) => actions.toggle(node, v === true)} aria-label={label} className="bg-background" />
   }
   return (
@@ -202,7 +204,13 @@ function RowCheckbox({ node, canToggle, cancelled }: { node: TaskNode; canToggle
           <Checkbox checked={node.isDone} disabled aria-hidden tabIndex={-1} />
         </span>
       </TooltipTrigger>
-      <TooltipContent>{cancelled ? 'โปรเจกต์นี้ถูกยกเลิกแล้ว — ทำเครื่องหมายไม่ได้' : 'ทำเครื่องหมายได้เฉพาะทีมงานโปรเจกต์หรือผู้รับผิดชอบงานนี้'}</TooltipContent>
+      <TooltipContent>
+        {cancelled
+          ? 'โปรเจกต์นี้ถูกยกเลิกแล้ว — ทำเครื่องหมายไม่ได้'
+          : mode !== 'manual'
+            ? autoCompletionHint(mode)
+            : 'ทำเครื่องหมายได้เฉพาะทีมงานโปรเจกต์หรือผู้รับผิดชอบงานนี้'}
+      </TooltipContent>
     </Tooltip>
   )
 }

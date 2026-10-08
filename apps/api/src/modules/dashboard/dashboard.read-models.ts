@@ -1,6 +1,6 @@
 // Read-model builders private to the dashboard module (ProposalListItem / TaskWithContext),
 // shaped's toListItem / summarize / withContext.
-import { computeProgress, isOverdue, type ISODate, type Proposal, type ProposalStatus, type Store, type Task, type User } from '@flowtrade/shared'
+import { completionMode, computeProgress, isOverdue, type ISODate, type Proposal, type ProposalStatus, type Store, type Task, type User } from '@flowtrade/shared'
 import type { ProposalListItem, TaskWithContext } from '@flowtrade/shared/api-types'
 import { proposalWithStoresInclude, toProduct, toProposal, toShelfType, toStores, toUser } from '../../common/mappers.js'
 import type { Prisma } from '../../generated/prisma/client.js'
@@ -18,7 +18,7 @@ export const listInclude = {
 export type ListRow = Prisma.ProposalGetPayload<{ include: typeof listInclude }>
 
 /** The task fields a proposal summary needs (progress / overdue / open / next due). */
-export interface TaskLite {
+export interface TaskLite extends Pick<Task, 'descriptionFormat' | 'detailFields'> {
   id: string
   proposalId: string
   parentId: string | null
@@ -36,7 +36,7 @@ export function groupByProposal<T extends { proposalId: string }>(tasks: T[]): M
   return out
 }
 
-/** progress is leaf-based; overdueCount counts overdue leaves; open/next-due use every task. */
+/** progress counts work units (computeProgress); overdueCount counts overdue leaves; open/next-due use every task. */
 export function toListItem(row: ListRow, tasks: TaskLite[], today: ISODate): ProposalListItem {
   const parentIds = new Set(tasks.map((x) => x.parentId).filter((id): id is string => !!id))
   const open = tasks.filter((x) => !x.isDone)
@@ -89,6 +89,6 @@ export function sortUsers(users: User[]): User[] {
   return [...users].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.name.localeCompare(b.name, 'th') || a.id.localeCompare(b.id))
 }
 
-export function withContext(task: Task, proposal: Proposal, stores: Store[], path: string[]): TaskWithContext {
-  return { task, proposal, stores, path }
+export function withContext(task: Task, proposal: Proposal, stores: Store[], path: string[], hasChildren: boolean): TaskWithContext {
+  return { task, proposal, stores, path, completion: completionMode(task, hasChildren) }
 }

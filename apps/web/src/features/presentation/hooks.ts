@@ -1,6 +1,6 @@
 // TanStack Query hooks of the presentation track (API: ./api.ts). Every write answers the whole PresentationData,
 // which goes straight into the cache.
-import { can, type ISODate, type Task, type User } from '@flowtrade/shared'
+import { can, workUnits, type ISODate, type Task, type User } from '@flowtrade/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { toast } from 'sonner'
@@ -8,7 +8,7 @@ import type { ProposalDetail } from '@/api'
 import { errorMessage, qk, useChangeProposalStatus, useTasks, useUserLookup } from '@/api/hooks'
 import { useCurrentUser } from '@/auth/auth'
 import { productionKey } from '@/features/production/api'
-import { leafTasks, storeWord } from '@/features/proposal-detail/utils'
+import { storeWord } from '@/features/proposal-detail/utils'
 import { today } from '@/lib/format'
 import { presentationApi } from './api'
 import { buildViews, canStartPresentation, headerLine, nextAction, stageItems, summarize } from './model'
@@ -66,8 +66,10 @@ export function usePresentationModel(proposal: ProposalDetail): PresentationMode
     const pickableIds = new Set([proposal.ownerId, ...proposal.memberIds, ...all.flatMap((t) => t.assigneeIds)])
     for (const u of lookup ?? []) if (can(u, 'proposal.read.all')) pickableIds.add(u.id)
     const doneLevel1Tasks = all.filter((t) => t.level === 1 && t.isDone).sort((a, b) => a.sortOrder - b.sortOrder)
-    const openLeafTasks = leafTasks(all)
-      .filter((t) => !t.isDone)
+    // What still blocks the prep gate: open work units (leaves, and parents whose own table isn't full yet).
+    const openLeafTasks = workUnits(all)
+      .filter((u) => !u.done)
+      .map((u) => u.task)
       .sort((a, b) => byDue(a.dueDate, b.dueDate) || a.sortOrder - b.sortOrder)
 
     // Bundled tasks (package snapshots + the latest re-pitch of each store) that were reopened or deleted since.

@@ -1,5 +1,6 @@
 import {
   canManageTasks,
+  completionMode,
   computeProgress,
   computeToggle,
   getAncestorIds,
@@ -32,6 +33,7 @@ import {
   useCommentCounts,
   useDeleteTask,
   useDuplicateTask,
+  patchTasks,
   useMoveTask,
   useTasks,
   useToggleTask,
@@ -52,7 +54,7 @@ import { TaskDrawer } from './task-drawer'
 import { TreeBranch } from './tree-branch'
 import { TreeSkeleton, TreeToolbar } from './tree-toolbar'
 import { TreeEnvContext, TreeViewContext, type TreeActions, type TreeEnv, type TreeView } from './tree-context'
-import { countDescendants, countDescendantsNot, GRID_COLS, levelNoun, parentKeyOf, ROOT_KEY } from './tree-utils'
+import { countDescendants, GRID_COLS, levelNoun, parentKeyOf, ROOT_KEY } from './tree-utils'
 import { computeFilter, countDepartments, countMatches, FILTER_LABEL, NO_DEPARTMENT, useStableTree, useTreeState, type DepartmentFilter, type TreeFilter } from './use-tree-state'
 
 const NO_COUNTS: Record<string, number> = {}
@@ -162,6 +164,38 @@ export function TaskTree({ proposal }: { proposal: ProposalDetail }) {
     moveTask.mutate({ id: node.id, input: { parentId: node.parentId, index: newIndex } })
   }
 
+  /** The highest task among `changes` that became done (the one worth announcing). */
+  const firstCompleted = (changes: { id: string; isDone: boolean }[]) =>
+    changes
+      .filter((c) => c.isDone)
+      .map((c) => tree.byId.get(c.id))
+      .filter((n): n is TaskNode => !!n)
+      .sort((a, b) => a.level - b.level)[0]
+
+  /** Every task is done: the next step is the presentation track (bundle a ชุดนำเสนอ, or back to the existing one). */
+  const celebrateAllDone = () => {
+    const hasTracks = (presentation.data?.tracks.length ?? 0) > 0
+    const canCreate = canRecordPresentation(me, proposal)
+    const goPresent = () =>
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('task')
+        next.delete('store')
+        next.set('tab', 'present')
+        if (!hasTracks) next.set('create', '1')
+        return next
+      })
+    toast.success('งานครบ 100% แล้ว 🎉', {
+      description: hasTracks
+        ? 'งานเตรียมกลับมาครบแล้ว — สร้างชุดใหม่หรือนำเสนอใหม่ได้'
+        : canCreate
+          ? 'ขั้นต่อไป: รวมงานเป็นชุดนำเสนอ แล้วติดตามผลจาก Buyer'
+          : 'แจ้งเจ้าของหรือทีมงานให้สร้างชุดนำเสนอ',
+      duration: 10_000,
+      action: hasTracks ? { label: 'ไปที่แท็บนำเสนอ Buyer', onClick: goPresent } : canCreate ? { label: 'สร้างชุดนำเสนอ', onClick: goPresent } : undefined,
+    })
+  }
+
   const impl: TreeActions = {
     openTask: (id, opts) => {
       setFocusComments(!!opts?.focusComments)
@@ -176,65 +210,36 @@ export function TaskTree({ proposal }: { proposal: ProposalDetail }) {
     },
     toggle: async (node, isDone) => {
       const all = tasks ?? []
-      const affected = countDescendantsNot(node, isDone)
-      if (affected > 0) {
-        const ok = await confirm(
-          isDone
-            ? {
-                title: `ทำเครื่องหมาย “${node.title}” ว่าเสร็จ?`,
-                description: `จะทำเครื่องหมายงานย่อยอีก ${affected} รายการว่าเสร็จด้วย`,
-                confirmLabel: `เสร็จทั้งหมด ${affected + 1} รายการ`,
-              }
-            : {
-                title: `เปิด “${node.title}” อีกครั้ง?`,
-                description: `งานย่อยที่เสร็จแล้ว ${affected} รายการจะกลับเป็น “ยังไม่เสร็จ” ด้วย`,
-                confirmLabel: 'เปิดงานอีกครั้ง',
-              },
-        )
-        if (!ok) return
-      }
-      // Which ancestors will auto-complete because of this tick (same cascade rules as the server)?
+      // Only a task ticked by hand gets here (the boxes of the others are disabled); its ancestors follow on their own.
+      if (completionMode(node, node.children.length > 0) !== 'manual') return
       const ancestors = new Set(getAncestorIds(all, node.id))
-      const completedAncestor = isDone
-        ? computeToggle(all, node.id, true)
-            .filter((c) => c.isDone && ancestors.has(c.id))
-            .map((c) => tree.byId.get(c.id))
-            .filter((n): n is TaskNode => !!n)
-            .sort((a, b) => a.level - b.level)[0]
-        : undefined
+      const completedAncestor = isDone ? firstCompleted(computeToggle(all, node.id, true).filter((c) => ancestors.has(c.id))) : undefined
       try {
         const result = await toggleTask.mutateAsync({ id: node.id, isDone })
-        if (isDone && result.allDone && !cancelled) {
-          // Next step is the presentation track: bundle the work into a ชุดนำเสนอ, or go back to the existing one.
-          const hasTracks = (presentation.data?.tracks.length ?? 0) > 0
-          const canCreate = canRecordPresentation(me, proposal)
-          const goPresent = () =>
-            setSearchParams((prev) => {
-              const next = new URLSearchParams(prev)
-              next.delete('task')
-              next.delete('store')
-              next.set('tab', 'present')
-              if (!hasTracks) next.set('create', '1')
-              return next
-            })
-          toast.success('งานครบ 100% แล้ว 🎉', {
-            description: hasTracks
-              ? 'งานเตรียมกลับมาครบแล้ว — สร้างชุดใหม่หรือนำเสนอใหม่ได้'
-              : canCreate
-                ? 'ขั้นต่อไป: รวมงานเป็นชุดนำเสนอ แล้วติดตามผลจาก Buyer'
-                : 'แจ้งเจ้าของหรือทีมงานให้สร้างชุดนำเสนอ',
-            duration: 10_000,
-            action: hasTracks ? { label: 'ไปที่แท็บนำเสนอ Buyer', onClick: goPresent } : canCreate ? { label: 'สร้างชุดนำเสนอ', onClick: goPresent } : undefined,
-          })
-        } else if (completedAncestor) {
-          toast.success(`${levelNoun(completedAncestor.level)} “${completedAncestor.title}” เสร็จครบแล้ว 🎉`)
-        }
+        if (isDone && result.allDone && !cancelled) celebrateAllDone()
+        else if (completedAncestor) toast.success(`${levelNoun(completedAncestor.level)} “${completedAncestor.title}” เสร็จครบแล้ว 🎉`)
       } catch {
         // already toasted and rolled back by the hook
       }
     },
     update: (id, patch: UpdateTaskInput, successMessage) => {
-      updateTask.mutate({ id, patch }, { onSuccess: () => successMessage && toast.success(successMessage) })
+      // A table edit can tick (or re-open) the task and its ancestors: same rules as the server.
+      const before = tasks ?? []
+      const { next, flips } = patchTasks(before, id, patch)
+      const ticked = firstCompleted(flips)
+      const reopened = flips.find((c) => !c.isDone)
+      const allDone = flips.some((c) => c.isDone) && next.length > 0 && next.every((t) => t.isDone)
+      updateTask.mutate(
+        { id, patch },
+        {
+          onSuccess: () => {
+            if (allDone && !cancelled) celebrateAllDone()
+            else if (ticked) toast.success(`กรอกข้อมูลครบแล้ว — ติ๊ก “${ticked.title}” เสร็จให้อัตโนมัติ`)
+            else if (reopened) toast.info(`ข้อมูลไม่ครบแล้ว — “${tree.byId.get(reopened.id)?.title ?? 'งานนี้'}” กลับเป็นยังไม่เสร็จ`)
+            else if (successMessage) toast.success(successMessage)
+          },
+        },
+      )
     },
     toggleExpanded: (id) => treeState.toggleExpanded(id),
     startAdd: (parentId) => {

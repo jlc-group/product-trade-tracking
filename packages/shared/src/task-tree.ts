@@ -1,5 +1,5 @@
 import { MAX_TASK_LEVEL } from './labels.js'
-import { cleanFieldLabels } from './detail-fields.js'
+import { cleanFieldLabels, detailFieldsProgress } from './detail-fields.js'
 import type { ISODate, Progress, Task, TaskLevel, TaskNode, TaskTemplateItem } from './types.js'
 
 // ---------- date-only helpers (no timezone drift: work in UTC on YYYY-MM-DD) ----------
@@ -41,7 +41,10 @@ function toPercent(done: number, total: number) {
   return total === 0 ? 0 : Math.round((done / total) * 100)
 }
 
-/** Builds the nested tree for one proposal. Progress is leaf-based (a parent counts its leaves). */
+/**
+ * Builds the nested tree for one proposal. Progress counts work units (isWorkUnit): a parent counts its own table, if
+ * it has one, plus the units below it.
+ */
 export function buildTaskTree(tasks: Task[]): TaskNode[] {
   const nodes = new Map<string, TaskNode>()
   for (const t of tasks) nodes.set(t.id, { ...t, children: [], progress: emptyProgress() })
@@ -57,8 +60,9 @@ export function buildTaskTree(tasks: Task[]): TaskNode[] {
       node.progress = { done: node.isDone ? 1 : 0, total: 1, percent: node.isDone ? 100 : 0 }
       return node.progress
     }
-    let done = 0
-    let total = 0
+    const own = hasDetailTable(node)
+    let done = own && detailTableFilled(node) ? 1 : 0
+    let total = own ? 1 : 0
     for (const c of node.children) {
       const p = finish(c)
       done += p.done
@@ -72,12 +76,20 @@ export function buildTaskTree(tasks: Task[]): TaskNode[] {
   return roots
 }
 
-/** Leaf-based progress of a whole proposal. */
-export function computeProgress(tasks: Pick<Task, 'id' | 'parentId' | 'isDone'>[]): Progress {
-  const hasChildren = new Set(tasks.map((t) => t.parentId).filter(Boolean) as string[])
-  const leaves = tasks.filter((t) => !hasChildren.has(t.id))
-  const done = leaves.filter((t) => t.isDone).length
-  return { done, total: leaves.length, percent: toPercent(done, leaves.length) }
+/**
+ * The pieces of work progress counts: every leaf, plus a parent with a table of its own (filling it is work too). A
+ * leaf is done when ticked (or its table filled); a parent's unit when its own table is filled.
+ */
+export function workUnits<T extends Pick<Task, 'id' | 'parentId' | 'isDone' | 'descriptionFormat' | 'detailFields'>>(tasks: T[]): { task: T; done: boolean }[] {
+  const parents = new Set(tasks.map((t) => t.parentId).filter(Boolean) as string[])
+  return tasks.flatMap((t) => (!parents.has(t.id) ? [{ task: t, done: t.isDone }] : hasDetailTable(t) ? [{ task: t, done: detailTableFilled(t) }] : []))
+}
+
+/** Progress of a whole proposal over its work units (workUnits). */
+export function computeProgress(tasks: Pick<Task, 'id' | 'parentId' | 'isDone' | 'descriptionFormat' | 'detailFields'>[]): Progress {
+  const units = workUnits(tasks)
+  const done = units.filter((u) => u.done).length
+  return { done, total: units.length, percent: toPercent(done, units.length) }
 }
 
 export function flattenTree(nodes: TaskNode[]): TaskNode[] {
@@ -125,32 +137,87 @@ export function subtreeHeight(tasks: Pick<Task, 'id' | 'parentId'>[], id: string
   return 1 + Math.max(...children.map((c) => subtreeHeight(tasks, c.id)))
 }
 
-// ---------- checklist cascade ----------
+// ---------- completion (ticked by hand, or derived from the task's data) ----------
 
 export interface ToggleChange {
   id: string
   isDone: boolean
 }
 
+/** How a task gets done: by hand only when it has neither a table to fill nor sub tasks; otherwise it follows them. */
+export type TaskCompletionMode = 'manual' | 'table' | 'children' | 'both'
+
+type CompletionData = Pick<Task, 'descriptionFormat' | 'detailFields'>
+type CompletionNode = Pick<Task, 'id' | 'parentId' | 'isDone' | 'descriptionFormat' | 'detailFields'>
+
+/** A table with rows to fill (FIELDS with ≥ 1 row); an empty table counts as none. */
+export const hasDetailTable = (t: CompletionData) => t.descriptionFormat === 'FIELDS' && t.detailFields.length > 0
+
+/** Every row of the task's table has a value. */
+export function detailTableFilled(t: CompletionData): boolean {
+  const { filled, total } = detailFieldsProgress(t.detailFields)
+  return hasDetailTable(t) && filled === total
+}
+
+export function completionMode(t: CompletionData, hasChildren: boolean): TaskCompletionMode {
+  const table = hasDetailTable(t)
+  return table && hasChildren ? 'both' : table ? 'table' : hasChildren ? 'children' : 'manual'
+}
+
+/** Why a box can't be ticked by hand (tooltips, the API's 422). */
+export function autoCompletionHint(mode: Exclude<TaskCompletionMode, 'manual'>): string {
+  switch (mode) {
+    case 'table':
+      return 'ติ๊กเสร็จอัตโนมัติเมื่อกรอกข้อมูลในตารางครบ'
+    case 'children':
+      return 'ติ๊กเสร็จอัตโนมัติเมื่อ Sub task เสร็จครบ'
+    case 'both':
+      return 'ติ๊กเสร็จอัตโนมัติเมื่อกรอกตารางครบและ Sub task เสร็จครบ'
+  }
+}
+
 /**
- * Rule set (same on client and server):
- *  - A task WITH children is done exactly when all of its children are done.
- *  - Ticking/unticking a parent applies the same state to every descendant.
- *  - After any change, ancestors are re-derived from their children.
- * Returns only the tasks whose isDone actually changes.
+ * Completion rules (same on client and server):
+ *  - A task with neither a table nor sub tasks is ticked by hand: its stored isDone stands.
+ *  - Any other task is done exactly when its table is fully filled (if it has one) AND all of its sub tasks are done
+ *    (if it has any). Derived bottom-up, so clearing a value re-opens the task and its ancestors.
+ * Returns only the tasks whose isDone must change (older rows ticked by hand against these rules are corrected too).
  */
-export function computeToggle(tasks: Pick<Task, 'id' | 'parentId' | 'isDone'>[], id: string, isDone: boolean): ToggleChange[] {
-  const state = new Map(tasks.map((t) => [t.id, t.isDone]))
-  const before = new Map(state)
-  state.set(id, isDone)
-  for (const d of getDescendantIds(tasks, id)) state.set(d, isDone)
-  for (const a of getAncestorIds(tasks, id)) {
-    const children = tasks.filter((t) => t.parentId === a)
-    state.set(a, children.every((c) => state.get(c.id)))
+export function deriveCompletion(tasks: CompletionNode[]): ToggleChange[] {
+  const kids = new Map<string, CompletionNode[]>()
+  for (const t of tasks) {
+    if (!t.parentId) continue
+    const list = kids.get(t.parentId)
+    if (list) list.push(t)
+    else kids.set(t.parentId, [t])
+  }
+  const memo = new Map<string, boolean>()
+  const done = (t: CompletionNode): boolean => {
+    const known = memo.get(t.id)
+    if (known !== undefined) return known
+    const children = kids.get(t.id) ?? []
+    const table = hasDetailTable(t)
+    const value = !table && children.length === 0 ? t.isDone : (!table || detailTableFilled(t)) && children.every((c) => done(c))
+    memo.set(t.id, value)
+    return value
   }
   const changes: ToggleChange[] = []
-  for (const [taskId, value] of state) if (before.get(taskId) !== value) changes.push({ id: taskId, isDone: value })
+  for (const t of tasks) {
+    const value = done(t)
+    if (value !== t.isDone) changes.push({ id: t.id, isDone: value })
+  }
   return changes
+}
+
+/**
+ * Tick / untick a task done by hand ('manual'), then let everything derived follow (its ancestors). A task whose
+ * completion is derived can't be ticked: [] (the API answers 422). Returns only the tasks whose isDone changes.
+ */
+export function computeToggle(tasks: CompletionNode[], id: string, isDone: boolean): ToggleChange[] {
+  const target = tasks.find((t) => t.id === id)
+  if (!target || completionMode(target, tasks.some((t) => t.parentId === id)) !== 'manual') return []
+  const own: ToggleChange[] = target.isDone === isDone ? [] : [{ id, isDone }]
+  return [...own, ...deriveCompletion(tasks.map((t) => (t.id === id ? { ...t, isDone } : t)))]
 }
 
 // ---------- moving ----------

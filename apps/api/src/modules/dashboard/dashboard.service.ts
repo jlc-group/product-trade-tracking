@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import { addDays, healthRank, isCountableStatus, isDueWithin, isOverdue, todayBangkok, type ProposalStatus, type Task, type User } from '@flowtrade/shared'
+import { addDays, healthRank, isCountableStatus, isDueWithin, isOverdue, readDetailFields, todayBangkok, type ProposalStatus, type Task, type User } from '@flowtrade/shared'
 import type { DashboardSummary, HomeDashboard, NavBadges } from '@flowtrade/shared/api-types'
 import { iso, toDateOnly } from '../../common/dates.js'
 import { taskInclude, toProposal, toStore, toTask, toUser } from '../../common/mappers.js'
@@ -61,7 +61,7 @@ export class DashboardService {
     const [taskRows, doneRows, doneTasks] = await Promise.all([
       activeIds.length ? this.prisma.task.findMany({ where: { proposalId: { in: activeIds } }, include: taskInclude }) : [],
       doneIds.length ? this.prisma.proposal.findMany({ where: { id: { in: doneIds } }, include: listInclude, orderBy: { code: 'asc' } }) : [],
-      doneIds.length ? this.prisma.task.findMany({ where: { proposalId: { in: doneIds } }, select: { id: true, proposalId: true, parentId: true, isDone: true, dueDate: true } }) : [],
+      doneIds.length ? this.prisma.task.findMany({ where: { proposalId: { in: doneIds } }, select: { id: true, proposalId: true, parentId: true, isDone: true, dueDate: true, descriptionFormat: true, detailFields: true } }) : [],
     ])
 
     // Live proposals' tasks (proposal code, then tree pre-order).
@@ -95,9 +95,9 @@ export class DashboardService {
     const items = activeRows.map((row) => toListItem(row, tasksByProposal.get(row.id) ?? [], t))
     const proposals = new Map(items.map((p) => [p.id, p]))
     const plain = new Map(activeRows.map((row) => [row.id, toProposal(row)]))
-    const ctx = (x: (typeof tasks)[number]) => withContext(x.task, plain.get(x.task.proposalId)!, proposals.get(x.task.proposalId)!.stores, x.path)
+    const ctx = (x: (typeof tasks)[number]) => withContext(x.task, plain.get(x.task.proposalId)!, proposals.get(x.task.proposalId)!.stores, x.path, parentIds.has(x.task.id))
 
-    const doneTasksBy = groupByProposal(doneTasks.map((x) => ({ ...x, dueDate: toDateOnly(x.dueDate) })))
+    const doneTasksBy = groupByProposal(doneTasks.map((x) => ({ ...x, dueDate: toDateOnly(x.dueDate), detailFields: readDetailFields(x.detailFields) })))
     const doneItems = doneRows.map((row) => toListItem(row, doneTasksBy.get(row.id) ?? [], t))
 
     const month = t.slice(0, 7)
