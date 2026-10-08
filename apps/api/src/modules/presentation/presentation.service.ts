@@ -24,7 +24,6 @@ import {
   recordStepsAllowed,
   reduceTrack,
   rejectReasonLabel,
-  ROLE_PERMISSIONS,
   STAGE_LABEL,
   stageLong,
   storeNamesLabel,
@@ -43,7 +42,6 @@ import {
   type PresentationStage,
   type ProductionDerived,
   type Proposal,
-  type Role,
   type StageEvent,
   type TrackView,
   type User,
@@ -71,9 +69,6 @@ const stale = (message: string) => conflict(message, 'STALE')
 const TASKS_CHANGED = 'งานที่เลือกบางงานถูกลบหรือเปิดใหม่แล้ว — โหลดหน้าใหม่แล้วลองอีกครั้ง'
 /** A record call that is neither one step nor [PRESENTED, outcome] (recordStepsAllowed). */
 const BAD_STEPS = 'ขั้นตอนไม่ถูกต้อง'
-const CAN_VIEW_ONLY = 'เลือกได้เฉพาะคนที่เปิดดูโปรเจกต์นี้ได้ (เจ้าของ สมาชิก หรือผู้รับผิดชอบงาน)'
-/** Roles that see every proposal (canViewProposal). */
-const READ_ALL_ROLES = (Object.keys(ROLE_PERMISSIONS) as Role[]).filter((role) => ROLE_PERMISSIONS[role].includes('proposal.read.all'))
 /** ?store= opens that store's sheet on the presentation tab. */
 const presentLink = (proposalId: string, storeId?: string) => (storeId ? `/proposals/${proposalId}?store=${storeId}` : `/proposals/${proposalId}?tab=present`)
 
@@ -155,21 +150,6 @@ export class PresentationService {
     return rows.map((t) =>
       toPackageTask({ id: t.id, title: t.title, completedAt: isoOrNull(t.completedAt), descriptionFormat: t.descriptionFormat, detailFields: readDetailFields(t.detailFields) }),
     )
-  }
-
-  /**
-   * Presenters / the preparer must be able to open the proposal, or the step never reaches their home page: the
-   * owner, members, assignees of its tasks, or active users who see every proposal. `keep` = people already on the
-   * track's plan, who may stay (a member removed since, a deactivated manager); stored events are never changed.
-   */
-  private async assertCanView(db: Db, proposal: Proposal, ids: (string | null | undefined)[], keep: (string | null | undefined)[] = []) {
-    const known = new Set([proposal.ownerId, ...proposal.memberIds, ...keep])
-    const rest = [...new Set(ids.filter((id): id is string => !!id && !known.has(id)))]
-    if (rest.length === 0) return
-    const allowed = await db.user.count({
-      where: { id: { in: rest }, OR: [{ isActive: true, role: { in: READ_ALL_ROLES } }, { assignments: { some: { task: { proposalId: proposal.id } } } }] },
-    })
-    if (allowed !== rest.length) throw invalid(CAN_VIEW_ONLY)
   }
 
   /** Steps as stored: a re-pitch's taskIds become the task snapshot. */
@@ -297,7 +277,7 @@ export class PresentationService {
         const row = input.storeIds.includes(id) ? storeRows.find((s) => s.id === id) : undefined
         return row ? [storeSnapshot(row)] : []
       })
-      await this.assertCanView(tx, proposal, input.presenterIds)
+      await this.access.assertCanView(tx, proposal, input.presenterIds)
       const { data } = await loadPresentation(tx, proposal.id)
       // One track per store, ever (a REJECTED store comes back by re-pitch, a WITHDRAWN one by revert).
       const taken = stores.filter((s) => data.tracks.some((t) => t.store.id === s.id))
@@ -350,7 +330,7 @@ export class PresentationService {
       await lockTracks(tx, proposal.id, { ids: input.trackIds })
       const { data, lastSeq } = await loadPresentation(tx, proposal.id)
       const views = input.trackIds.map((id) => this.viewOf(data, id))
-      await this.assertCanView(
+      await this.access.assertCanView(
         tx,
         proposal,
         events.flatMap((e) => (e.kind === 'REPITCH' ? e.presenterIds : e.kind === 'NEEDS_INFO' ? [e.preparerId] : [])),
@@ -384,7 +364,7 @@ export class PresentationService {
       const event: MetaEvent = { kind: 'SCHEDULED', meetingDate: input.meetingDate, presenterIds: input.presenterIds, contactName: input.contactName?.trim() || null }
       const problem = firstError(validateEvent(view, event, todayBangkok(), 0))
       if (problem) throw invalid(problem)
-      await this.assertCanView(tx, proposal, input.presenterIds, view.plan.presenterIds)
+      await this.access.assertCanView(tx, proposal, input.presenterIds, view.plan.presenterIds)
       await tx.presentationEvent.createMany({ data: [eventRow(trackId, nextSeq, event, user.id, new Date())] })
       const when = input.meetingDate ? formatThaiDate(input.meetingDate) : 'ยังไม่ได้นัดวัน'
       await this.activity.log(tx, user, 'presentation.schedule', 'PROPOSAL', proposal.id, proposal.id, `นัดนำเสนอ ${view.store.name}: ${when}`)
@@ -429,7 +409,7 @@ export class PresentationService {
       const changed = patch as Record<string, unknown>
       const before = item.effective as Record<string, unknown>
       const people = (v: Record<string, unknown>) => [...(Array.isArray(v.presenterIds) ? (v.presenterIds as string[]) : []), v.preparerId as string | null | undefined]
-      await this.assertCanView(tx, proposal, people(changed), people(before))
+      await this.access.assertCanView(tx, proposal, people(changed), people(before))
       if (Array.isArray(changed.acceptedProductIds)) assertProducts(proposal, changed.acceptedProductIds as string[])
 
       const production = await this.productionBefore(tx, proposal, kind === 'PASSED' && Object.hasOwn(patch, 'acceptedProductIds'))

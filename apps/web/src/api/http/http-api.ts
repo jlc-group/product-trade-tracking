@@ -4,6 +4,7 @@ import type {
   AppNotification,
   Channel,
   Department,
+  Manufacturer,
   PresentationData,
   Product,
   ProductionAdvanceInput,
@@ -12,6 +13,7 @@ import type {
   ProductionConfirmInput,
   ProductionDatesInput,
   ProductionKeepInput,
+  ProductionOrderEditInput,
   ProductionPlanInput,
   ProductionQuantitiesInput,
   ProductionView,
@@ -35,6 +37,7 @@ import {
   type DashboardSummary,
   type EditPresentationEventInput,
   type HomeDashboard,
+  type ManufacturerInput,
   type MoveTaskInput,
   type MyTasksFilters,
   type NavBadges,
@@ -192,6 +195,18 @@ export const httpApi = {
     reorder: (ids: string[]) => put<true>('/departments/order', { ids }),
   },
 
+  manufacturers: {
+    /** Active manufacturers (all of them with includeInactive — needs manufacturer.manage). */
+    list: (opts: { includeInactive?: boolean } = {}) => get<Manufacturer[]>('/manufacturers', { includeInactive: opts.includeInactive }),
+    /** { [manufacturerId]: number of projects with a production order naming it } */
+    usage: () => get<Record<string, number>>('/manufacturers/usage'),
+    /** manufacturer.manage, or proposal.create (the confirm dialog's inline add). */
+    create: (input: ManufacturerInput) => post<Manufacturer>('/manufacturers', input),
+    update: (manufacturerId: string, changes: Partial<ManufacturerInput> & { isActive?: boolean }) => patch<Manufacturer>(`/manufacturers/${id(manufacturerId)}`, changes),
+    remove: (manufacturerId: string) => del<true>(`/manufacturers/${id(manufacturerId)}`),
+    reorder: (ids: string[]) => put<true>('/manufacturers/order', { ids }),
+  },
+
   stores: {
     list: (opts: { includeInactive?: boolean } = {}) => get<Store[]>('/stores', { includeInactive: opts.includeInactive }),
     usage: () => get<Record<string, number>>('/stores/usage'),
@@ -295,6 +310,8 @@ export const httpApi = {
     restore: (proposalId: string, productId: string) => post<ProductionView>(`/proposals/${id(proposalId)}/production/items/${id(productId)}/restore`, {}),
     keep: (proposalId: string, productId: string, input: ProductionKeepInput) =>
       post<ProductionView>(`/proposals/${id(proposalId)}/production/items/${id(productId)}/keep`, input),
+    editOrder: (proposalId: string, orderId: string, input: ProductionOrderEditInput) =>
+      patch<ProductionView>(`/proposals/${id(proposalId)}/production/orders/${id(orderId)}`, input),
   },
 
   comments: {

@@ -1,6 +1,7 @@
 // TanStack Query hooks of the "รอผลิต" tab (API: ./api.ts). Every write answers the whole ProductionView, which goes
 // straight into the cache.
 import {
+  can,
   deriveProduction,
   PRODUCTION_LEAD_DAYS_DEFAULT,
   productionPerms,
@@ -10,17 +11,18 @@ import {
   type ProductionConfirmInput,
   type ProductionDatesInput,
   type ProductionEvent,
+  type ProductionOrderEditInput,
+  type ProductionPerson,
   type ProductionPlanInput,
   type ProductionQuantitiesInput,
   type ProductionTrackView,
   type ProductionView,
-  type User,
 } from '@flowtrade/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { toast } from 'sonner'
 import type { ProposalDetail } from '@/api'
-import { errorMessage, qk, useUserLookup } from '@/api/hooks'
+import { errorMessage, qk, useTasks, useUserLookup } from '@/api/hooks'
 import { useCurrentUser } from '@/auth/auth'
 import { presentationKey } from '@/features/presentation/hooks'
 import { today } from '@/lib/format'
@@ -44,17 +46,27 @@ function emptySummary(targetDate: ISODate, todayStr: ISODate) {
   return deriveProduction({ productIds: [], targetDate, leadDays: PRODUCTION_LEAD_DAYS_DEFAULT, views: [], items: [] }, todayStr).summary
 }
 
-/** Everything the tab renders: rows, summary, permissions, names. */
+/** Everything the tab renders: rows, summary, orders, permissions, names. */
 export function useProductionModel(proposal: ProposalDetail): ProductionModel {
   const me = useCurrentUser()
   const { data, isPending, isError, refetch } = useProduction(proposal.id)
-  const { data: lookup } = useUserLookup()
+  const { data: lookup, isPending: lookupPending } = useUserLookup()
+  // Only for who may be an order contact (task assignees can open the project); cached by the other tabs.
+  const { data: tasks, isPending: tasksPending } = useTasks(proposal.id)
+  // Settled either way: a failed read leaves the set smaller rather than blocking the confirm.
+  const peopleReady = !lookupPending && !tasksPending
   const todayStr = today()
 
   return useMemo<ProductionModel>(() => {
     const { canWork, canDecide } = productionPerms(me, proposal)
-    const usersById = new Map<string, User>()
+    const orders = data?.orders ?? []
+    // The people orders name come embedded, so a deactivated contact (gone from the lookup) still has a name and avatar.
+    const usersById = new Map<string, ProductionPerson>()
+    for (const o of orders) for (const p of [o.confirmedBy, o.mainContact, ...o.coContacts]) usersById.set(p.id, p)
     for (const u of [proposal.owner, ...proposal.members, me, ...(lookup ?? [])]) usersById.set(u.id, u)
+    // Same rule as the presenters (and the API's contactNotTeam check): people who can open the project.
+    const pickableIds = new Set([proposal.ownerId, ...proposal.memberIds, ...(tasks ?? []).flatMap((t) => t.assigneeIds)])
+    for (const u of lookup ?? []) if (can(u, 'proposal.read.all')) pickableIds.add(u.id)
     const userName = (id: string | null | undefined) => {
       if (!id) return '—'
       const u = usersById.get(id)
@@ -71,6 +83,7 @@ export function useProductionModel(proposal: ProposalDetail): ProductionModel {
     return {
       isLoading: isPending,
       isError,
+      peopleReady,
       refetch: () => void refetch(),
       view: data,
       rows: all.filter((r) => r.status !== 'CANCELLED'),
@@ -84,10 +97,14 @@ export function useProductionModel(proposal: ProposalDetail): ProductionModel {
       proposal,
       me,
       userName,
+      usersById,
+      pickableIds,
       rowById: new Map(all.map((r) => [r.productId, r])),
       eventsOf: (productId) => events.get(productId) ?? [],
+      orders,
+      orderById: new Map(orders.map((o) => [o.id, o])),
     }
-  }, [proposal, me, data, lookup, todayStr, isPending, isError, refetch])
+  }, [proposal, me, data, lookup, tasks, todayStr, isPending, isError, peopleReady, refetch])
 }
 
 /** What reverting / editing a PASS would do to production (K29); null when nothing changes or the view isn't loaded. */
@@ -177,4 +194,8 @@ export function useRestoreProduction(proposal: ProposalDetail) {
 
 export function useKeepProduction(proposal: ProposalDetail) {
   return useProductionWrite(proposal, (v: { productId: string; storeIds: string[] }) => productionApi.keep(proposal.id, v.productId, v.storeIds))
+}
+
+export function useEditProductionOrder(proposal: ProposalDetail) {
+  return useProductionWrite(proposal, (v: { orderId: string; input: ProductionOrderEditInput }) => productionApi.editOrder(proposal.id, v.orderId, v.input))
 }

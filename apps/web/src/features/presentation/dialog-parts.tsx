@@ -112,37 +112,61 @@ export function SelectAllButtons({ total, selected, onAll, onNone }: { total: nu
 /** Field hint under a PeoplePicker limited to the project team (pickableIds). */
 export const PICKER_HINT = 'เลือกได้เฉพาะทีมโปรเจกต์ — เพิ่มสมาชิกได้ที่หัวโปรเจกต์'
 
-/** Full-width people button (presenters, preparer) on top of UserPicker. */
+type PickedPerson = Pick<User, 'id' | 'name' | 'nickname' | 'avatarColor' | 'isActive'> & Partial<Pick<User, 'position' | 'department'>>
+
+/** Full-width people button (presenters, preparer, production order contacts) on top of UserPicker. */
 export function PeoplePicker({
   id,
   value,
   onChange,
   usersById,
   allowedIds,
+  excludeIds,
   single,
   placeholder,
+  invalid,
+  'aria-describedby': describedBy,
 }: {
   id: string
   value: string[]
   onChange: (ids: string[]) => void
   /** Also resolves people the active-user lookup no longer lists. */
-  usersById: Map<string, User>
-  /** Only these people are offered (PresentationModel.pickableIds); someone already picked stays listed so they can be removed. */
+  usersById: ReadonlyMap<string, PickedPerson>
+  /**
+   * Only these people are offered (PresentationModel.pickableIds); someone already picked stays listed so they can be
+   * removed — a deactivated one too, marked "(ปิดใช้งาน)" (usersById resolves them).
+   */
   allowedIds?: ReadonlySet<string>
+  /** Never offered, e.g. the main contact in the co-contact picker. */
+  excludeIds?: readonly string[]
   single?: boolean
   placeholder: string
+  invalid?: boolean
+  'aria-describedby'?: string
 }) {
-  const { data: lookup = [] } = useUserLookup()
-  const users = value.map((x) => usersById.get(x)).filter((u): u is User => !!u)
-  const excludeIds = allowedIds ? lookup.filter((u) => !allowedIds.has(u.id) && !value.includes(u.id)).map((u) => u.id) : undefined
+  const { data: lookup } = useUserLookup()
+  const users = value.map((x) => usersById.get(x)).filter((u): u is PickedPerson => !!u)
+  const offered = (u: User) => !excludeIds?.includes(u.id) && (!allowedIds || allowedIds.has(u.id) || value.includes(u.id))
+  const hidden = allowedIds || excludeIds?.length ? (lookup ?? []).filter((u) => !offered(u)).map((u) => u.id) : undefined
+  // The lookup lists active users only: a picked person missing from it was deactivated (once it has loaded).
+  const listed = new Set(lookup?.map((u) => u.id))
+  const inactivePicked = lookup ? users.filter((u) => !listed.has(u.id)) : undefined
   return (
     <UserPicker
       single={single}
       value={value}
       onChange={onChange}
-      excludeIds={excludeIds}
+      excludeIds={hidden}
+      inactivePicked={inactivePicked}
       trigger={
-        <Button id={id} type="button" variant="outline" className="h-9 w-full justify-start gap-2 px-2.5 font-normal">
+        <Button
+          id={id}
+          type="button"
+          variant="outline"
+          aria-invalid={invalid || undefined}
+          aria-describedby={describedBy}
+          className="h-9 w-full justify-start gap-2 px-2.5 font-normal"
+        >
           {users.length ? (
             <>
               <AvatarStack users={users} max={4} size="xs" />

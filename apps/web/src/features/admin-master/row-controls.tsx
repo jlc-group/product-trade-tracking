@@ -12,16 +12,28 @@ export type ConfirmFn = ReturnType<typeof useConfirm>[0]
 
 /**
  * Optimistic active/inactive switch state. `setActive` should resolve after the
- * list has been refetched, so the switch never flickers back.
+ * list has been refetched, so the switch never flickers back. The toast hints default to the proposal wizard's wording.
  */
-export function useActiveToggle({ name, isActive, setActive, offHint }: { name: string; isActive: boolean; setActive: (active: boolean) => Promise<unknown>; offHint?: string }) {
+export function useActiveToggle({
+  name,
+  isActive,
+  setActive,
+  onHint,
+  offHint,
+}: {
+  name: string
+  isActive: boolean
+  setActive: (active: boolean) => Promise<unknown>
+  onHint?: string
+  offHint?: string
+}) {
   const [optimistic, setOptimistic] = useState<boolean | null>(null)
   const checked = optimistic ?? isActive
   const toggle = async (next: boolean) => {
     setOptimistic(next)
     try {
       await setActive(next)
-      if (next) toast.success(`เปิดใช้งาน ${name} แล้ว`, { description: 'กลับมาให้เลือกในขั้นตอนเสนอสินค้าได้ตามปกติ' })
+      if (next) toast.success(`เปิดใช้งาน ${name} แล้ว`, { description: onHint ?? 'กลับมาให้เลือกในขั้นตอนเสนอสินค้าได้ตามปกติ' })
       else toast.success(`ปิดใช้งาน ${name} แล้ว`, { description: offHint ?? 'จะไม่แสดงให้เลือกในการเสนอสินค้าใหม่ — โปรเจกต์เดิมไม่ได้รับผลกระทบ' })
     } catch {
       // error toast comes from the mutation hook
@@ -78,8 +90,22 @@ export function EditButton({ name, onClick }: { name: string; onClick: () => voi
   )
 }
 
+/** How the delete guard words what uses a record (`usage` = number of projects). */
+export interface UsedBy {
+  /** "การเสนอสินค้า 3 รายการ" (after "ถูกใช้ใน") */
+  count: (usage: number) => string
+  /** What deactivating hides it from: "การเสนอสินค้าใหม่" */
+  hiddenFrom: string
+  /** What keeps showing it: "โปรเจกต์เดิม" */
+  kept: string
+  /** "การเสนอสินค้าใด" (after "ยังไม่มี") */
+  none: string
+}
+
+const USED_BY_PROPOSALS: UsedBy = { count: (n) => `การเสนอสินค้า ${n} รายการ`, hiddenFrom: 'การเสนอสินค้าใหม่', kept: 'โปรเจกต์เดิม', none: 'การเสนอสินค้าใด' }
+
 /**
- * Delete with guard: when the record is used by proposals the button is soft-disabled
+ * Delete with guard: when the record is used (by proposals unless `usedBy` says otherwise) the button is soft-disabled
  * (still focusable, with a tooltip) and offers "ปิดการใช้งานแทน" instead.
  */
 export function DeleteButton({
@@ -91,6 +117,7 @@ export function DeleteButton({
   onDelete,
   onDeactivate,
   deleteNote,
+  usedBy = USED_BY_PROPOSALS,
 }: {
   name: string
   /** e.g. "ห้าง", "แพลตฟอร์ม", "ประเภท Shelf", "สินค้า" */
@@ -102,6 +129,7 @@ export function DeleteButton({
   onDeactivate: () => Promise<unknown>
   /** Extra consequence sentence appended to the delete confirmation. */
   deleteNote?: ReactNode
+  usedBy?: UsedBy
 }) {
   const [busy, setBusy] = useState(false)
   const inUse = (usage ?? 0) > 0
@@ -113,7 +141,7 @@ export function DeleteButton({
       if (!isActive) return
       const ok = await confirm({
         title: `ลบ “${name}” ไม่ได้`,
-        description: `${noun}นี้ถูกใช้ในการเสนอสินค้า ${usage} รายการ จึงต้องเก็บไว้ให้ประวัติครบ — ปิดการใช้งานแทนได้ ระบบจะซ่อนจากการเสนอสินค้าใหม่ แต่โปรเจกต์เดิมยังเห็นตามปกติ และเปิดกลับได้ทุกเมื่อ`,
+        description: `${noun}นี้ถูกใช้ใน${usedBy.count(usage ?? 0)} จึงต้องเก็บไว้ให้ประวัติครบ — ปิดการใช้งานแทนได้ ระบบจะซ่อนจาก${usedBy.hiddenFrom} แต่${usedBy.kept}ยังเห็นตามปกติ และเปิดกลับได้ทุกเมื่อ`,
         confirmLabel: 'ปิดการใช้งานแทน',
       })
       if (ok) await onDeactivate()
@@ -123,7 +151,7 @@ export function DeleteButton({
       title: `ลบ “${name}” ?`,
       description: (
         <>
-          ลบถาวรและกู้คืนไม่ได้ ยังไม่มีการเสนอสินค้าใดใช้{noun}นี้{deleteNote ? <> — {deleteNote}</> : null}
+          ลบถาวรและกู้คืนไม่ได้ ยังไม่มี{usedBy.none}ใช้{noun}นี้{deleteNote ? <> — {deleteNote}</> : null}
         </>
       ),
       confirmLabel: `ลบ${noun}`,

@@ -1,5 +1,5 @@
 import { addDays, todayBangkok, type EntityType, type ISODate } from '@flowtrade/shared'
-import { ArrowUpRightIcon, Building2Icon, LayersIcon, ListChecksIcon, ListTreeIcon, PackageIcon, ShoppingBagIcon, StoreIcon, UsersIcon, type LucideIcon } from 'lucide-react'
+import { ArrowUpRightIcon, Building2Icon, FactoryIcon, LayersIcon, ListChecksIcon, ListTreeIcon, PackageIcon, ShoppingBagIcon, StoreIcon, UsersIcon, type LucideIcon } from 'lucide-react'
 import { Link } from 'react-router'
 import type { ActivityWithActor, ProposalListItem } from '@/api'
 import { StoreLogos } from '@/components/common/badges'
@@ -15,11 +15,12 @@ export const ENTITY_META: Record<EntityType, { label: string; icon: LucideIcon }
   SHELF_TYPE: { label: 'Shelf', icon: LayersIcon },
   DEPARTMENT: { label: 'แผนก', icon: Building2Icon },
   PRODUCT: { label: 'สินค้า', icon: PackageIcon },
+  MANUFACTURER: { label: 'บริษัทรับผลิต', icon: FactoryIcon },
   USER: { label: 'ผู้ใช้', icon: UsersIcon },
   TEMPLATE: { label: 'แม่แบบ', icon: ListTreeIcon },
 }
 
-export const ENTITY_ORDER: EntityType[] = ['PROPOSAL', 'TASK', 'STORE', 'SHELF_TYPE', 'PRODUCT', 'USER', 'DEPARTMENT', 'TEMPLATE']
+export const ENTITY_ORDER: EntityType[] = ['PROPOSAL', 'TASK', 'STORE', 'SHELF_TYPE', 'PRODUCT', 'MANUFACTURER', 'USER', 'DEPARTMENT', 'TEMPLATE']
 
 /** Business date (Asia/Bangkok) of a timestamp. */
 export const activityDay = (createdAt: string): ISODate => todayBangkok(new Date(createdAt))

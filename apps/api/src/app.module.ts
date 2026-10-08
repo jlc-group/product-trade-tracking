@@ -9,6 +9,7 @@ import { CommentsModule } from './modules/comments/comments.module.js'
 import { DashboardModule } from './modules/dashboard/dashboard.module.js'
 import { DepartmentsModule } from './modules/departments/departments.module.js'
 import { HealthController } from './health.controller.js'
+import { ManufacturersModule } from './modules/manufacturers/manufacturers.module.js'
 import { NotificationsModule } from './modules/notifications/notifications.module.js'
 import { PresentationModule } from './modules/presentation/presentation.module.js'
 import { ProductionModule } from './modules/production/production.module.js'
@@ -31,6 +32,7 @@ import { PrismaModule } from './prisma/prisma.service.js'
     StoresModule,
     ShelfTypesModule,
     ProductsModule,
+    ManufacturersModule,
     TemplatesModule,
     ProposalsModule,
     TasksModule,

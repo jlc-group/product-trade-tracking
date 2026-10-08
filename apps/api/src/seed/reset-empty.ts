@@ -4,7 +4,7 @@
 //            at first sign-in
 //          — the two built-in shelf types "Exclusive Shelf" and "Normal Shelf" (OFFLINE)
 //   deletes — everything else: proposals, tasks, comments, activity, notifications, products,
-//             stores/platforms, task templates, other shelf types, other users, sessions, counters.
+//             stores/platforms, manufacturers, task templates, other shelf types, other users, sessions, counters.
 // Only tables in DB_SCHEMA are touched (ORM queries are scoped by the adapter); no other schema.
 //
 // Run: npm run db:reset-empty -w @flowtrade/api -- --yes
@@ -52,7 +52,9 @@ export async function resetToEmpty(prisma: PrismaService, adminSignIn?: string):
       await count('proposal_members', tx.proposalMember.deleteMany())
       await count('proposal_products', tx.proposalProduct.deleteMany())
       await count('proposal_stores', tx.proposalStore.deleteMany())
+      // Production orders cascade with their proposal; they block deleting their manufacturer until then.
       await count('proposals', tx.proposal.deleteMany())
+      await count('manufacturers', tx.manufacturer.deleteMany())
       await count('proposal_counters', tx.proposalCounter.deleteMany())
       await count('task_template_items', tx.taskTemplateItem.deleteMany())
       await count('task_templates', tx.taskTemplate.deleteMany())

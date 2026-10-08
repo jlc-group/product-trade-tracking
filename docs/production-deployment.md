@@ -42,6 +42,10 @@ Do not run the old `test:e2e` against Production: it resets its target schema.
 Rollback application: set `current.json` to the previous object recorded in `last-deploy.json`,
 restart `product-trade-tracking-prod`, then verify `/api/v1/health` and assets.
 Database restore is a separate operator action after reviewing the migration and backup.
+Rolling the application back past the release that added production orders (migrations `20261008000000`–`20261008000200`)
+is only safe before that release has written a manufacturer, a production order or an order edit: older code cannot read
+the new enum values (`EntityType` MANUFACTURER, `ProductionEventKind` ORDER) and its step-back does not clear
+`production_items.order_id`. After that, roll forward with a fix, or restore the pre-migration backup.
 
 Setup checkpoint (2026-10-08): source changes were committed/pushed; controller registration
 was deployed and verified; DNS and the dedicated connector were created; signed GitHub ping

@@ -11,17 +11,23 @@ import { Callout } from '@/features/wizard/choice-card'
 import { formatDate } from '@/lib/format'
 import { AdvanceDialog } from './advance-dialog'
 import { CancelDialog } from './cancel-dialog'
-import { ConfirmDialog, type TypedQty } from './confirm-dialog'
+import { ConfirmDialog, type ConfirmDraft } from './confirm-dialog'
 import { DatesDialog } from './dates-dialog'
 import { DeadlineTimeline } from './deadline-timeline'
 import { useBackProduction, useKeepProduction, useProductionModel, useRestoreProduction } from './hooks'
 import { flagCalloutText, keepCopy, nextCard, PROD_ERR } from './model'
 import { NextCard } from './next-card'
+import { OrderDialog } from './order-dialog'
+import { OrdersCard } from './orders-card'
 import { ProductionTable } from './production-table'
 import { QuantityDialog } from './quantity-dialog'
-import type { ProductionModel, ProductionTabAction } from './types'
+import type { OrderDraft, ProductionModel, ProductionTabAction } from './types'
 
-type DialogTarget = { kind: 'confirm' } | { kind: 'advance'; to: 'PRODUCED' | 'DELIVERED'; ids?: string[] } | { kind: 'dates' | 'cancel' | 'qty'; productId: string }
+type DialogTarget =
+  | { kind: 'confirm' }
+  | { kind: 'advance'; to: 'PRODUCED' | 'DELIVERED'; ids?: string[] }
+  | { kind: 'dates' | 'cancel' | 'qty'; productId: string }
+  | { kind: 'order'; orderId: string }
 
 /** The open dialog; kept (with open: false) while it animates out. `key` remounts it fresh on every open. */
 type DialogState = DialogTarget & { key: number; open: boolean }
@@ -40,13 +46,23 @@ interface Props {
   onGoToPresentation: () => void
 }
 
-/** "รอผลิต" tab: SKUs that passed a buyer, the confirmation (quantities + "วันที่ต้องการสินค้า") and the production steps. */
+/** "รอผลิต" tab: SKUs that passed a buyer, the confirmation (quantities, "วันที่ต้องการสินค้า", ใบสั่งผลิต) and the production steps. */
 export function ProductionTab({ proposal, onGoToPresentation }: Props) {
   const model = useProductionModel(proposal)
-  const [typedTexts, setTypedTexts] = useState<Record<string, string>>({})
-  const typed = useMemo<TypedQty>(
-    () => ({ texts: typedTexts, set: (productId, text) => setTypedTexts((prev) => ({ ...prev, [productId]: text })), clear: () => setTypedTexts({}) }),
-    [typedTexts],
+  const [draftTexts, setDraftTexts] = useState<Record<string, string>>({})
+  const [draftOrder, setDraftOrder] = useState<OrderDraft | null>(null)
+  const draft = useMemo<ConfirmDraft>(
+    () => ({
+      texts: draftTexts,
+      order: draftOrder,
+      setText: (productId, text) => setDraftTexts((prev) => ({ ...prev, [productId]: text })),
+      setOrder: setDraftOrder,
+      clear: () => {
+        setDraftTexts({})
+        setDraftOrder(null)
+      },
+    }),
+    [draftTexts, draftOrder],
   )
   const [params, setParams] = useSearchParams()
   const [dialog, setDialog] = useState<DialogState | null>(null)
@@ -61,12 +77,14 @@ export function ProductionTab({ proposal, onGoToPresentation }: Props) {
   const closeDialog = () => setDialog((prev) => (prev ? { ...prev, open: false } : prev))
 
   function runConfirm(check: ConfirmCheck) {
-    if (check.open) return openDialog({ kind: 'confirm' })
-    toast.info(check.text)
+    if (!check.open) return void toast.info(check.text)
+    // The button waits (spinner) until the dialog's contact defaults can be computed.
+    if (model.peopleReady) openDialog({ kind: 'confirm' })
   }
 
-  // Home deep link ?do=confirm: once the view has loaded, the same check as the button; `do` then leaves the URL.
-  const deepKey = params.get('do') === 'confirm' && !model.isLoading ? 'confirm' : null
+  // Home deep link ?do=confirm: once the view and the people the dialog's defaults depend on have loaded, the same check
+  // as the button; `do` then leaves the URL.
+  const deepKey = params.get('do') === 'confirm' && !model.isLoading && model.peopleReady ? 'confirm' : null
   const deepCheck = deepKey && !model.isError ? confirmCheck(model) : null
   const [deepSeen, setDeepSeen] = useState<string | null>(null)
   if (deepKey !== deepSeen) {
@@ -166,6 +184,8 @@ export function ProductionTab({ proposal, onGoToPresentation }: Props) {
         return void onKeep(a.productId)
       case 'editQty':
         return openDialog({ kind: 'qty', productId: a.productId })
+      case 'editOrder':
+        return openDialog({ kind: 'order', orderId: a.orderId })
       case 'goPresentation':
         return onGoToPresentation()
     }
@@ -204,7 +224,7 @@ export function ProductionTab({ proposal, onGoToPresentation }: Props) {
     const card = nextCard({ summary: model.summary, rows: model.rows, canWork: model.canWork, canDecide: model.canDecide, word, today: model.today })
     body = (
       <>
-        {!cancelled && <NextCard card={card} onAction={onAction} />}
+        {!cancelled && <NextCard card={card} onAction={onAction} busy={card.primary?.action.kind === 'confirm' && !model.peopleReady} />}
         {model.summary.flagged > 0 && card.kind !== 'review' && (
           <Callout tone="warning" icon={<TriangleAlertIcon />} title={flagCalloutText(model.rows)}>
             {model.canDecide ? 'ตรวจสอบและเลือกการดำเนินการที่แถวของ SKU นั้นด้านล่าง' : 'รอเจ้าของโปรเจกต์หรือผู้จัดการตัดสินใจ'}
@@ -212,6 +232,7 @@ export function ProductionTab({ proposal, onGoToPresentation }: Props) {
         )}
         <DeadlineTimeline model={model} />
         <ProductionTable model={model} onAction={onAction} />
+        {model.orders.length > 0 && <OrdersCard model={model} onAction={onAction} />}
       </>
     )
   }
@@ -224,19 +245,19 @@ export function ProductionTab({ proposal, onGoToPresentation }: Props) {
         </Callout>
       )}
       {body}
-      {dialog && <DialogHost dialog={dialog} model={model} typed={typed} onClose={closeDialog} />}
+      {dialog && <DialogHost dialog={dialog} model={model} draft={draft} onClose={closeDialog} />}
       {confirmDialog}
     </div>
   )
 }
 
-function DialogHost({ dialog, model, typed, onClose }: { dialog: DialogState; model: ProductionModel; typed: TypedQty; onClose: () => void }) {
+function DialogHost({ dialog, model, draft, onClose }: { dialog: DialogState; model: ProductionModel; draft: ConfirmDraft; onClose: () => void }) {
   const onOpenChange = (open: boolean) => {
     if (!open) onClose()
   }
   switch (dialog.kind) {
     case 'confirm':
-      return <ConfirmDialog key={dialog.key} open={dialog.open} onOpenChange={onOpenChange} model={model} typed={typed} />
+      return <ConfirmDialog key={dialog.key} open={dialog.open} onOpenChange={onOpenChange} model={model} draft={draft} />
     case 'advance':
       return <AdvanceDialog key={dialog.key} open={dialog.open} onOpenChange={onOpenChange} model={model} to={dialog.to} initialIds={dialog.ids} />
     case 'dates':
@@ -245,6 +266,8 @@ function DialogHost({ dialog, model, typed, onClose }: { dialog: DialogState; mo
       return <CancelDialog key={dialog.key} open={dialog.open} onOpenChange={onOpenChange} model={model} productId={dialog.productId} />
     case 'qty':
       return <QuantityDialog key={dialog.key} open={dialog.open} onOpenChange={onOpenChange} model={model} productId={dialog.productId} />
+    case 'order':
+      return <OrderDialog key={dialog.key} open={dialog.open} onOpenChange={onOpenChange} model={model} orderId={dialog.orderId} />
   }
 }
 

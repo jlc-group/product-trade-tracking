@@ -1,5 +1,5 @@
 // TanStack Query hooks — the only way pages read/write data.
-import { applyDetailPatch, computeProgress, computeToggle, deriveCompletion, type Channel, type Department, type Product, type ProposalStatus, type ShelfType, type Store, type Task, type TaskTemplate, type User } from '@flowtrade/shared'
+import { applyDetailPatch, computeProgress, computeToggle, deriveCompletion, type Channel, type Department, type Manufacturer, type Product, type ProposalStatus, type ShelfType, type Store, type Task, type TaskTemplate, type User } from '@flowtrade/shared'
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { uuid } from '@/lib/id'
@@ -8,6 +8,7 @@ import type {
   CreateProposalInput,
   DepartmentInput,
   CreateTaskInput,
+  ManufacturerInput,
   MoveTaskInput,
   MyTasksFilters,
   NavBadges,
@@ -28,6 +29,8 @@ export const qk = {
   users: ['users', 'list'] as const,
   departments: (includeInactive = false) => ['departments', { includeInactive }] as const,
   departmentUsage: ['departments', 'usage'] as const,
+  manufacturers: (includeInactive = false) => ['manufacturers', { includeInactive }] as const,
+  manufacturerUsage: ['manufacturers', 'usage'] as const,
   stores: (includeInactive = false) => ['stores', { includeInactive }] as const,
   storeUsage: ['stores', 'usage'] as const,
   shelfTypes: (includeInactive = false) => ['shelf-types', { includeInactive }] as const,
@@ -186,6 +189,38 @@ export const departmentMutations = {
 export function useReorderDepartments() {
   const qc = useQueryClient()
   return useMutation({ mutationFn: (ids: string[]) => api.departments.reorder(ids), onSuccess: () => qc.invalidateQueries({ queryKey: ['departments'] }), onError })
+}
+
+export const useManufacturers = (includeInactive = false) =>
+  useQuery({ queryKey: qk.manufacturers(includeInactive), queryFn: () => api.manufacturers.list({ includeInactive }), staleTime: 60_000 })
+export const useManufacturerUsage = () => useQuery({ queryKey: qk.manufacturerUsage, queryFn: api.manufacturers.usage })
+const manufacturerBase = masterMutations<ManufacturerInput, Partial<ManufacturerInput> & { isActive?: boolean }, Manufacturer>('manufacturers', api.manufacturers)
+export const manufacturerMutations = {
+  ...manufacturerBase,
+  /**
+   * The confirm dialog's inline add: no error toast — the picker shows a name problem (422) under its search box. The
+   * list refreshes either way: a duplicate usually means a teammate just added (or deactivated) that name.
+   */
+  useQuickCreate() {
+    const qc = useQueryClient()
+    return useMutation({ mutationFn: (input: ManufacturerInput) => api.manufacturers.create(input), onSettled: () => qc.invalidateQueries({ queryKey: ['manufacturers'] }) })
+  },
+  /** Production orders embed the manufacturer's name and active flag, so the "รอผลิต" views refresh too (in the background). */
+  useUpdate() {
+    const qc = useQueryClient()
+    return useMutation({
+      mutationFn: ({ id, patch }: { id: string; patch: Partial<ManufacturerInput> & { isActive?: boolean } }) => api.manufacturers.update(id, patch),
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ['production'] })
+        return qc.invalidateQueries({ queryKey: ['manufacturers'] })
+      },
+      onError,
+    })
+  },
+}
+export function useReorderManufacturers() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: (ids: string[]) => api.manufacturers.reorder(ids), onSuccess: () => qc.invalidateQueries({ queryKey: ['manufacturers'] }), onError })
 }
 
 export const storeMutations = masterMutations<StoreInput, Partial<StoreInput> & { isActive?: boolean }, Store>('stores', api.stores)

@@ -42,6 +42,25 @@ export const planSchema = z
   .refine((v) => v.leadDays !== undefined || v.note !== undefined, PERR.nothingToSave)
 export type PlanBody = z.output<typeof planSchema>
 
+/** An id the shared validator requires: missing stays missing, '' → null, so orderFieldErrors answers "เลือก…" (not the generic id error). */
+const zPickedId = z.preprocess((v) => (v === '' ? null : v), zId.nullable().optional())
+
+/**
+ * The "ใบสั่งผลิต" fields (shape only: required ids, ≤ PRODUCTION_REF_MAX reference, the start's bounds, 1–365 days,
+ * the main contact not a co-contact, ≤ ORDER_CO_CONTACTS_MAX co-contacts are orderFieldErrors', so the API answers with
+ * PERR copy — a missing / null / '' manufacturerId, mainContactId, startedOn or productionDays passes here and gets
+ * "เลือกบริษัทรับผลิต" / "เลือกผู้ติดต่อหลัก" / "เลือกวันที่เริ่มผลิต" / "กรอกระยะเวลาผลิต"). referenceNo is stored cleaned
+ * (cleanReferenceNo; blank → null).
+ */
+const zOrderFields = {
+  referenceNo: z.string({ message: BAD }).max(TEXT_CAP, 'ข้อความยาวเกินไป').nullable().optional(),
+  manufacturerId: zPickedId,
+  mainContactId: zPickedId,
+  coContactIds: z.array(zId, { message: BAD }).max(IDS_MAX, BAD),
+  startedOn: zStepDate.nullable().optional(),
+  productionDays: z.preprocess((v) => (v === '' ? null : v), z.number({ message: PERR.days }).nullable().optional()),
+}
+
 export const confirmSchema = z.object(
   {
     items: z
@@ -51,10 +70,42 @@ export const confirmSchema = z.object(
       .refine(uniqueIds, 'สินค้าซ้ำกัน'),
     /** '' passes so the shared neededOnError answers "เลือกวันที่". */
     neededOn: zStepDate.optional(),
+    /** The order this press creates (required). */
+    order: z.object(zOrderFields, { message: BAD }),
   },
   { message: BAD },
 )
 export type ConfirmBody = z.output<typeof confirmSchema>
+
+/**
+ * `updatedAt` = the order the client showed (409 when it moved); the fields sent replace the current ones (an absent
+ * key keeps its value; a null / '' manufacturerId, mainContactId, startedOn or productionDays is sent and refused as
+ * required).
+ */
+export const orderEditSchema = z
+  .object(
+    {
+      updatedAt: z.string({ message: BAD }).min(1, BAD),
+      referenceNo: zOrderFields.referenceNo,
+      manufacturerId: zOrderFields.manufacturerId,
+      mainContactId: zOrderFields.mainContactId,
+      coContactIds: zOrderFields.coContactIds.optional(),
+      startedOn: zOrderFields.startedOn,
+      productionDays: zOrderFields.productionDays,
+    },
+    { message: BAD },
+  )
+  .refine(
+    (v) =>
+      v.referenceNo !== undefined ||
+      v.manufacturerId !== undefined ||
+      v.mainContactId !== undefined ||
+      v.coContactIds !== undefined ||
+      v.startedOn !== undefined ||
+      v.productionDays !== undefined,
+    PERR.nothingToSave,
+  )
+export type OrderEditBody = z.output<typeof orderEditSchema>
 
 export const advanceSchema = z.object(
   {

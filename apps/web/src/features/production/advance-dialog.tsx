@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Field, SelectAllButtons } from '@/features/presentation/dialog-parts'
 import { ProdDialogActions } from './dialog-parts'
 import { useAdvanceProduction } from './hooks'
-import { PROD_ERR, savedQty } from './model'
+import { producibleRows, PROD_ERR, savedQty } from './model'
 import { isStale, proposalLine } from './utils'
 import type { ProductionModel, ProductionRow } from './types'
 
@@ -50,8 +50,9 @@ function AdvanceForm({ model, to, initialIds, onDone }: { model: ProductionModel
   const word = model.storeWord
   const today = model.today
   const from = to === 'PRODUCED' ? 'IN_PRODUCTION' : 'PRODUCED'
-  // Rows as they were when the dialog opened (the list doesn't empty itself while the dialog closes after saving).
-  const [candidates] = useState(() => model.rows.filter((r) => r.status === from))
+  // Rows as they were when the dialog opened (the list doesn't empty itself while the dialog closes after saving); a SKU
+  // whose production start is still ahead can't be produced yet.
+  const [candidates] = useState(() => (to === 'PRODUCED' ? producibleRows(model.rows, today) : model.rows.filter((r) => r.status === from)))
   const [checked, setChecked] = useState<string[]>(() => {
     const ids = candidates.map((r) => r.productId)
     return initialIds ? ids.filter((x) => initialIds.includes(x)) : ids

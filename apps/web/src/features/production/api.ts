@@ -6,6 +6,7 @@ import type {
   ProductionCancelInput,
   ProductionConfirmInput,
   ProductionDatesInput,
+  ProductionOrderEditInput,
   ProductionPlanInput,
   ProductionQuantitiesInput,
 } from '@flowtrade/shared'
@@ -29,4 +30,6 @@ export const productionApi = {
   cancel: (proposalId: string, productId: string, i: ProductionCancelInput) => api.production.cancel(proposalId, productId, i),
   restore: (proposalId: string, productId: string) => api.production.restore(proposalId, productId),
   keep: (proposalId: string, productId: string, storeIds: string[]) => api.production.keep(proposalId, productId, { storeIds }),
+  /** Changed fields only + the order's `updatedAt` as shown (409 when someone else edited it). */
+  editOrder: (proposalId: string, orderId: string, i: ProductionOrderEditInput) => api.production.editOrder(proposalId, orderId, i),
 }

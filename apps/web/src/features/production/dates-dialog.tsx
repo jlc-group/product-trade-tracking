@@ -43,7 +43,7 @@ function DatesForm({ model, row, onDone }: { model: ProductionModel; row: Produc
   const produced = row.status === 'PRODUCED' || row.status === 'DELIVERED'
   const delivered = row.status === 'DELIVERED'
   // The due date is the owner's / a manager's call (like lead days), and frozen once delivered.
-  const canNeed = productionRowActions(row, { canWork: model.canWork, canDecide: model.canDecide }).editNeededOn
+  const canNeed = productionRowActions(row, { canWork: model.canWork, canDecide: model.canDecide }, today).editNeededOn
   const [neededOn, setNeededOn] = useState<ISODate | null>(row.dueOn)
   const [producedOn, setProducedOn] = useState<ISODate | null>(item.producedOn)
   const [deliveredOn, setDeliveredOn] = useState<ISODate | null>(item.deliveredOn)

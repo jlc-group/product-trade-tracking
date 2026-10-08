@@ -1,11 +1,20 @@
 // Web side of the "รอผลิต" tab: status looks, derived copy (next card, header line, row lines, history), the
-// deadline timeline and the quantity inputs of the dialogs. The rules live in @flowtrade/shared (production.ts). No
-// React and no clock reads — `today` always comes in as an argument.
+// deadline timeline, the quantity inputs of the dialogs and the "ใบสั่งผลิต" fields. The rules live in
+// @flowtrade/shared (production.ts). No React and no clock reads — `today` always comes in as an argument.
 import {
   addDays,
+  arrivalLate,
   deriveProduction,
+  cleanReferenceNo,
   diffDays,
+  earliestPassedOn,
+  earliestProducedOn,
   formatQty,
+  futureStartOf,
+  orderFieldErrors,
+  orderLabel,
+  orderEditStartFloor,
+  orderStartBounds,
   parseQtyText,
   productionDiff,
   productionErrors,
@@ -13,8 +22,14 @@ import {
   productionStatusLabel,
   quantityError,
   skuListLabel,
+  type ArrivalLate,
   type ISODate,
+  type OrderStartBounds,
+  type OrderStartRules,
   type ProductionEvent,
+  type ProductionOrder,
+  type ProductionOrderFields,
+  type ProductionPerson,
   type ProductionRow,
   type ProductionStatus,
   type ProductionSummary,
@@ -23,7 +38,7 @@ import {
 } from '@flowtrade/shared'
 import { relativeTo } from '@/features/presentation/model'
 import { formatDate } from '@/lib/format'
-import type { HeaderLine, NextCard, StatusMeta } from './types'
+import type { HeaderLine, NextCard, OrderDraft, OrderErrors, StatusMeta } from './types'
 
 export { relativeTo }
 
@@ -55,6 +70,9 @@ export function firstPassOf(row: Pick<ProductionRow, 'passedStores'>): ISODate |
 }
 
 const deliverWord = (word: string) => `ส่งเข้าคลัง/${word}`
+
+/** IN_PRODUCTION rows whose production start is not after today: the ones "บันทึกผลิตเสร็จ" may take (futureStartOf). */
+export const producibleRows = (rows: readonly ProductionRow[], today: ISODate) => rows.filter((r) => r.status === 'IN_PRODUCTION' && !futureStartOf(r.item, today))
 
 // ---------- next card (§5.5, K1, K5, K26) ----------
 
@@ -106,20 +124,29 @@ export function nextCard(c: NextCardContext): NextCard {
   }
 
   if (s.state === 'ACTIVE') {
+    // A SKU whose production start ("วันที่ดำเนินการ") is still ahead can't be marked produced yet.
+    const producible = producibleRows(c.rows, c.today).length
+    const firstStart = c.rows.reduce<ISODate | null>((min, r) => {
+      const d = futureStartOf(r.item, c.today)
+      return d && (!min || d < min) ? d : min
+    }, null)
     const primary: NextCard['primary'] = !c.canWork
       ? null
       : s.produced > 0
         ? { label: `บันทึกส่งแล้ว (${s.produced} SKU)`, icon: 'delivered', action: { kind: 'advance', to: 'DELIVERED' } }
-        : { label: `บันทึกผลิตเสร็จ (${s.inProduction} SKU)`, icon: 'produced', action: { kind: 'advance', to: 'PRODUCED' } }
+        : producible > 0
+          ? { label: `บันทึกผลิตเสร็จ (${producible} SKU)`, icon: 'produced', action: { kind: 'advance', to: 'PRODUCED' } }
+          : null
+    const notStarted = s.produced === 0 && producible === 0 && firstStart
     return {
       kind: 'active',
       tone: overdue ? 'danger' : 'info',
       title: overdue
         ? `เลยกำหนด${deliverWord(word)} ${s.overdueDays} วัน — ยังไม่ส่ง ${making} SKU`
-        : `${s.inProduction > 0 ? `กำลังผลิต ${making} SKU` : `ผลิตเสร็จรอส่ง ${s.produced} SKU`} · ส่งแล้ว ${s.delivered}/${s.confirmed}`,
+        : `${notStarted ? `รอเริ่มผลิต ${s.inProduction} SKU` : s.inProduction > 0 ? `กำลังผลิต ${making} SKU` : `ผลิตเสร็จรอส่ง ${s.produced} SKU`} · ส่งแล้ว ${s.delivered}/${s.confirmed}`,
       reason: due,
       primary,
-      note: null,
+      note: !primary && firstStart ? `เริ่มผลิต ${formatDate(firstStart)} (${relativeTo(firstStart, c.today)})` : null,
     }
   }
 
@@ -394,17 +421,24 @@ export function deadlineChip(s: ProductionSummary): SubLine {
 
 // ---------- history (§5.10 ItemHistory) ----------
 
-export function eventTitle(e: ProductionEvent, word: string): string {
+export function eventTitle(e: ProductionEvent, word: string, userName: (id: string | null | undefined) => string): string {
   const label = (s: ProductionStatus | null) => (s ? productionStatusLabel(s) : '—')
   switch (e.kind) {
     case 'QUANTITY':
       return `จำนวนผลิต ${e.quantityBefore != null ? formatQty(e.quantityBefore) : '—'} → ${e.quantityAfter != null ? `${formatQty(e.quantityAfter)} ชิ้น` : 'ล้าง'}`
     case 'CONFIRM': {
-      // Newer confirms carry "วันที่ต้องการสินค้า"; older ones a picked start date.
+      // Newer confirms carry "วันที่ต้องการสินค้า"; older ones a picked start date. The manufacturer is the name at the
+      // time; the order's schedule (start, days) from when it exists.
       const need = typeof e.detail.neededOn === 'string' ? e.detail.neededOn : null
       const when = need ? ` · ต้องการสินค้า ${formatDate(need)}` : e.date ? ` · เริ่ม ${formatDate(e.date)}` : ''
-      return `ยืนยันเริ่มผลิต${e.quantityAfter != null ? ` (${formatQty(e.quantityAfter)} ชิ้น)` : ''}${when}`
+      const maker = typeof e.detail.manufacturerName === 'string' ? ` · ${e.detail.manufacturerName}` : ''
+      const start = need && typeof e.detail.startedOn === 'string' ? e.detail.startedOn : null
+      const days = typeof e.detail.productionDays === 'number' ? ` · ~${e.detail.productionDays} วัน` : ''
+      const schedule = start ? ` · เริ่ม ${formatDate(start)}${days}` : ''
+      return `ยืนยันเริ่มผลิต${e.quantityAfter != null ? ` (${formatQty(e.quantityAfter)} ชิ้น)` : ''}${when}${maker}${schedule}`
     }
+    case 'ORDER':
+      return orderEventTitle(e.detail, userName)
     case 'ADVANCE':
       return e.toStatus === 'DELIVERED' ? `${deliverWord(word)}แล้ว ${formatDate(e.date)}` : `ผลิตเสร็จ ${formatDate(e.date)}`
     case 'BACK':
@@ -431,6 +465,270 @@ export function eventTitle(e: ProductionEvent, word: string): string {
     case 'PLAN':
       return e.leadDaysAfter != null ? `ตั้ง deadline ${e.leadDaysAfter} วันก่อนวางขาย` : 'แก้หมายเหตุการผลิต'
   }
+}
+
+/** A [before, after] pair from an event's detail, or null. */
+function pairOf(v: unknown): [unknown, unknown] | null {
+  return Array.isArray(v) && v.length === 2 ? [v[0], v[1]] : null
+}
+
+/** An `{ added, removed }` change from an event's detail (its strings only), or null. */
+function changeOf(v: unknown): { added: string[]; removed: string[] } | null {
+  if (!v || typeof v !== 'object') return null
+  const { added, removed } = v as { added?: unknown; removed?: unknown }
+  const strings = (x: unknown) => (Array.isArray(x) ? x.filter((s): s is string => typeof s === 'string') : [])
+  return { added: strings(added), removed: strings(removed) }
+}
+
+/**
+ * "แก้ข้อมูลใบสั่งผลิตที่ 2: บริษัท A → B, เอกสาร — → PO-1, เริ่มผลิต 20 ต.ค. 69 → 25 ต.ค. 69, ระยะเวลาผลิต 30 → 45 วัน,
+ * ผู้ติดต่อหลัก ต้น → นิด, ผู้ติดต่อร่วม +เอ −บี" (a schedule "before" of an order confirmed before schedules existed reads
+ * "—"). People read as the names saved with the event (still right after an account is deactivated or renamed); events
+ * saved before names were kept resolve their ids through `userName`.
+ */
+function orderEventTitle(d: Record<string, unknown>, userName: (id: string | null | undefined) => string): string {
+  const head = typeof d.orderSeq === 'number' ? `แก้ข้อมูล${orderLabel({ seq: d.orderSeq })}` : 'แก้ข้อมูลใบสั่งผลิต'
+  const text = (v: unknown) => (typeof v === 'string' && v ? v : '—')
+  const day = (v: unknown) => (typeof v === 'string' && v ? formatDate(v) : '—')
+  const num = (v: unknown) => (typeof v === 'number' ? String(v) : '—')
+  const idName = (v: unknown) => userName(typeof v === 'string' ? v : null)
+  const maker = pairOf(d.manufacturer)
+  const ref = pairOf(d.referenceNo)
+  const start = pairOf(d.startedOn)
+  const days = pairOf(d.productionDays)
+  const main = pairOf(d.mainContactName)?.map(text) ?? pairOf(d.mainContactId)?.map(idName)
+  const coIds = changeOf(d.coContacts)
+  const co = changeOf(d.coContactNames) ?? (coIds && { added: coIds.added.map(idName), removed: coIds.removed.map(idName) })
+  const coText = co ? [...co.added.map((n) => `+${n}`), ...co.removed.map((n) => `−${n}`)].join(' ') : ''
+  const parts = [
+    maker && `บริษัท ${text(maker[0])} → ${text(maker[1])}`,
+    ref && `เอกสาร ${text(ref[0])} → ${text(ref[1])}`,
+    start && `เริ่มผลิต ${day(start[0])} → ${day(start[1])}`,
+    days && `ระยะเวลาผลิต ${num(days[0])} → ${num(days[1])} วัน`,
+    main && `ผู้ติดต่อหลัก ${main[0]} → ${main[1]}`,
+    coText && `ผู้ติดต่อร่วม ${coText}`,
+  ].filter(Boolean)
+  return parts.length ? `${head}: ${parts.join(', ')}` : head
+}
+
+// ---------- production orders ("ใบสั่งผลิต") ----------
+
+/** Short name of a person an order embeds: nickname || name (as the API's log and event copy name them). */
+export const shortName = (p: Pick<ProductionPerson, 'name' | 'nickname'>) => p.nickname || p.name
+
+/** The newest order (highest seq), or null. */
+export function latestOrder(orders: readonly ProductionOrder[]): ProductionOrder | null {
+  return orders.reduce<ProductionOrder | null>((last, o) => (!last || o.seq > last.seq ? o : last), null)
+}
+
+/** Row line under the product: "ใบสั่งผลิตที่ 2 · บริษัท ABC · PO-2026-0012". */
+export function orderLine(o: ProductionOrder): string {
+  return [orderLabel(o), o.manufacturer.name, o.referenceNo].filter(Boolean).join(' · ')
+}
+
+/**
+ * A new confirm's starting values: the latest order's manufacturer (if still active) and contacts (active and on the
+ * team), else the confirming user as main contact; `startedOn` (defaultOrderStart) and the duration of the latest order
+ * that has one; never a reference number.
+ */
+export function defaultOrderDraft(orders: readonly ProductionOrder[], pickableIds: ReadonlySet<string>, meId: string, startedOn: ISODate): OrderDraft {
+  const last = latestOrder(orders)
+  const ok = (p: ProductionPerson) => p.isActive && pickableIds.has(p.id)
+  const main = last && ok(last.mainContact) ? last.mainContact.id : meId
+  const lastDays = latestOrder(orders.filter((o) => o.productionDays != null))?.productionDays
+  return {
+    manufacturerId: last?.manufacturer.isActive ? last.manufacturer.id : null,
+    referenceNo: '',
+    startedOn,
+    productionDays: daysText(lastDays),
+    mainContactId: main,
+    coContactIds: last ? last.coContacts.filter((p) => ok(p) && p.id !== main).map((p) => p.id) : [],
+  }
+}
+
+/** The edit dialog's starting values: the order as saved. */
+export function orderDraftOf(o: ProductionOrder): OrderDraft {
+  return {
+    manufacturerId: o.manufacturer.id,
+    referenceNo: o.referenceNo ?? '',
+    startedOn: o.startedOn,
+    productionDays: daysText(o.productionDays),
+    mainContactId: o.mainContact.id,
+    coContactIds: o.coContacts.map((p) => p.id),
+  }
+}
+
+/**
+ * Which schedule fields a dialog checks and sends: a confirm (`order` null) both; an edit the ones it changes — on an
+ * order without a schedule yet (confirmed before schedules existed) both once either is filled in, like the API.
+ */
+export function scheduleEdits(order: ProductionOrder | null, d: OrderDraft): { start: boolean; days: boolean } {
+  if (!order) return { start: true, days: true }
+  const days = readDays(d.productionDays)
+  if (order.startedOn === null) {
+    const any = d.startedOn !== null || days !== null
+    return { start: any, days: any }
+  }
+  return { start: d.startedOn !== order.startedOn, days: days !== order.productionDays }
+}
+
+/**
+ * Client checks of the order fields (shared orderFieldErrors with the viewer's copy, the start against `start`), keys
+ * in dialog order; on an edit (`order`) only the schedule fields it changes are checked (scheduleEdits), like the API.
+ */
+export function orderErrors(d: OrderDraft, start: OrderStartRules, order: ProductionOrder | null = null): OrderErrors {
+  const check = scheduleEdits(order, d)
+  return orderFieldErrors(
+    {
+      manufacturerId: d.manufacturerId,
+      referenceNo: d.referenceNo,
+      startedOn: check.start ? d.startedOn : undefined,
+      productionDays: check.days ? readDays(d.productionDays) : undefined,
+      mainContactId: d.mainContactId,
+      coContactIds: d.coContactIds,
+    },
+    PROD_ERR,
+    start,
+  )
+}
+
+/** What a confirm sends (call only once orderErrors() is empty). */
+export function orderFieldsOf(d: OrderDraft): ProductionOrderFields {
+  return {
+    referenceNo: cleanReferenceNo(d.referenceNo),
+    manufacturerId: d.manufacturerId ?? '',
+    mainContactId: d.mainContactId ?? '',
+    coContactIds: [...new Set(d.coContactIds)],
+    startedOn: d.startedOn ?? '',
+    productionDays: readDays(d.productionDays) ?? 0,
+  }
+}
+
+/**
+ * The fields an edit changed (empty = nothing to save; a schedule field cleared or half-filled is not in it but still
+ * counts as a change — scheduleEdits — so saving shows its error); co-contacts compare as a set.
+ */
+export function orderPatch(o: ProductionOrder, d: OrderDraft): Partial<ProductionOrderFields> {
+  const next = orderFieldsOf(d)
+  const patch: Partial<ProductionOrderFields> = {}
+  if (next.manufacturerId !== o.manufacturer.id) patch.manufacturerId = next.manufacturerId
+  if (next.referenceNo !== o.referenceNo) patch.referenceNo = next.referenceNo
+  const check = scheduleEdits(o, d)
+  const days = readDays(d.productionDays)
+  if (check.start && d.startedOn) patch.startedOn = d.startedOn
+  if (check.days && days !== null) patch.productionDays = days
+  if (next.mainContactId !== o.mainContact.id) patch.mainContactId = next.mainContactId
+  const before = new Set(o.coContacts.map((p) => p.id))
+  if (next.coContactIds.length !== before.size || next.coContactIds.some((id) => !before.has(id))) patch.coContactIds = next.coContactIds
+  return patch
+}
+
+// ---------- production order schedule ("วันที่ดำเนินการ", "ระยะเวลาผลิต", "ของถึงประมาณ") ----------
+
+/** "ระยะเวลาผลิต" as typed: its number (NaN = not a whole number of days → productionDaysError), null when blank. */
+export function readDays(text: string): number | null {
+  const t = text.trim()
+  if (t === '') return null
+  return /^\d+$/.test(t) ? Number(t) : Number.NaN
+}
+
+/** Input text of a saved duration: its number, or '' when none. */
+export const daysText = (n: number | null | undefined) => (n != null ? String(n) : '')
+
+/** "วันที่ดำเนินการ" of a dialog: what it is checked against, the date picker's range and the hint under it. */
+export interface StartRange {
+  /** Same rules as the API (orderFieldErrors' `start`). */
+  rules: OrderStartRules
+  /** The DateField's min / max. */
+  pick: OrderStartBounds
+  hint: string
+  /** No day fits (a produced date before the earliest pass): the start can't be changed. */
+  locked: boolean
+}
+
+/**
+ * The start range of an order whose SKUs are `rows` (a confirm: the pending set; an edit: the order's SKUs, `edit`):
+ * from their earliest buyer pass (today when none) up to the launch (today once launched) — orderStartBounds, as the
+ * API checks it; on an edit also not after a produced / delivered date already recorded on them.
+ */
+export function startRange(rows: readonly ProductionRow[], today: ISODate, targetDate: ISODate, edit = false): StartRange {
+  const pass = earliestPassedOn([...rows])
+  const items = edit ? rows.flatMap((r) => (r.item ? [r.item] : [])) : undefined
+  const bounds = orderStartBounds(items ? orderEditStartFloor(pass, items) : pass, today, targetDate)
+  const floor = items ? earliestProducedOn(items) : null
+  const max = floor && floor < bounds.max ? floor : bounds.max
+  const capped = max !== bounds.max
+  const from = pass ? `วันที่ผ่าน Buyer (${formatDate(bounds.min)})` : ` ${formatDate(bounds.min)}`
+  const to = capped ? `วันที่ผลิตเสร็จ (${formatDate(max)})` : ` ${formatDate(max)}`
+  const locked = bounds.min > max
+  return {
+    rules: items ? { bounds, items } : { bounds },
+    pick: { min: bounds.min, max },
+    hint: locked
+      ? `แก้วันที่เริ่มผลิตไม่ได้ — วันที่ผลิตเสร็จ (${formatDate(max)}) อยู่ก่อน${pass ? 'วันที่ผ่าน Buyer' : 'วันที่เริ่มได้เร็วที่สุด'} (${formatDate(bounds.min)})`
+      : bounds.min === max
+        ? `เลือกได้แค่ ${formatDate(max)}`
+        : `เริ่มได้ตั้งแต่${from} ถึง${to}`,
+    locked,
+  }
+}
+
+/** The dialogs' warning under "ของถึงประมาณ" (red after the launch wins over yellow after the need date). */
+export function arrivalWarning(late: ArrivalLate): string {
+  return late.kind === 'LAUNCH'
+    ? `ของจะถึงหลังวันวางขาย ${late.days} วัน`
+    : `ของจะถึงหลังวันที่ต้องการสินค้า ${late.days} วัน — ควรคุยกับโรงงานหรือเลื่อนวันที่ต้องการสินค้า`
+}
+
+/** The orders card's chip of a late arrival. */
+export function arrivalChip(late: ArrivalLate): SubLine {
+  return late.kind === 'LAUNCH' ? { text: `หลังวันวางขาย ${late.days} วัน`, tone: 'danger' } : { text: `ช้ากว่าวันที่ต้องการ ${late.days} วัน`, tone: 'warning' }
+}
+
+const ON_THE_WAY: ProductionStatus[] = ['IN_PRODUCTION', 'PRODUCED']
+
+/** The order's SKUs still on their way (กำลังผลิต / ผลิตเสร็จ), proposal row order. */
+export function openRowsOf(order: Pick<ProductionOrder, 'productIds'>, rowById: ReadonlyMap<string, ProductionRow>): ProductionRow[] {
+  return order.productIds.flatMap((pid) => {
+    const r = rowById.get(pid)
+    return r && ON_THE_WAY.includes(r.status) ? [r] : []
+  })
+}
+
+/** Earliest "วันที่ต้องการสินค้า" (due date) of rows, or null when none. */
+export const earliestDueOf = (rows: readonly ProductionRow[]) => rows.reduce<ISODate | null>((min, r) => (!min || r.dueOn < min ? r.dueOn : min), null)
+
+/**
+ * How late an order's "ของถึงประมาณ" is: after the earliest due date of its SKUs still on their way (yellow) or after
+ * the launch (red); null when in time, without a schedule, or once nothing is on its way (delivered / cancelled).
+ */
+export function orderArrivalLate(order: ProductionOrder, rowById: ReadonlyMap<string, ProductionRow>, targetDate: ISODate): ArrivalLate | null {
+  const open = openRowsOf(order, rowById)
+  return open.length > 0 ? arrivalLate(order.expectedOn, earliestDueOf(open), targetDate) : null
+}
+
+/** The timeline's lines for orders arriving late, seq order: "ใบสั่งผลิตที่ 2 ของถึงประมาณ … ช้ากว่าวันที่ต้องการ 5 วัน". */
+export function orderArrivalAlerts(orders: readonly ProductionOrder[], rowById: ReadonlyMap<string, ProductionRow>, targetDate: ISODate): { tone: 'danger' | 'warning'; text: string }[] {
+  return orders.flatMap((o) => {
+    const late = orderArrivalLate(o, rowById, targetDate)
+    if (!late || !o.expectedOn) return []
+    const head = `${orderLabel(o)} ของถึงประมาณ ${formatDate(o.expectedOn)}`
+    return [late.kind === 'LAUNCH' ? { tone: 'danger' as const, text: `${head} หลังวันวางขาย ${late.days} วัน` } : { tone: 'warning' as const, text: `${head} ช้ากว่าวันที่ต้องการ ${late.days} วัน` }]
+  })
+}
+
+/** Status line of a SKU on its way whose order has a schedule: "ของถึงประมาณ 19 พ.ย.", yellow / red when after its own due date / the launch. */
+export function arrivalLine(row: ProductionRow, order: ProductionOrder | undefined, targetDate: ISODate): SubLine | null {
+  if (!order?.expectedOn || !ON_THE_WAY.includes(row.status)) return null
+  const text = `ของถึงประมาณ ${formatDate(order.expectedOn, { withYear: false })}`
+  const late = arrivalLate(order.expectedOn, row.dueOn, targetDate)
+  if (!late) return { text, tone: 'muted' }
+  return late.kind === 'LAUNCH' ? { text: `${text} · หลังวันวางขาย ${late.days} วัน`, tone: 'danger' } : { text: `${text} · ช้ากว่าที่ต้องการ ${late.days} วัน`, tone: 'warning' }
+}
+
+/** Picking a main contact takes that person out of the co-contacts. */
+export function withMainContact(d: OrderDraft, mainContactId: string | null): OrderDraft {
+  return { ...d, mainContactId, coContactIds: mainContactId ? d.coContactIds.filter((id) => id !== mainContactId) : d.coContactIds }
 }
 
 // ---------- quantity inputs (confirm and edit dialogs) ----------

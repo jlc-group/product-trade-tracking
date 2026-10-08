@@ -1,4 +1,5 @@
-import { defaultNeededOn, diffDays, formatQty, latestNeededOn, neededOnError, type ISODate } from '@flowtrade/shared'
+import { defaultNeededOn, defaultOrderStart, diffDays, formatQty, latestNeededOn, neededOnError, type ISODate } from '@flowtrade/shared'
+import { useQueryClient } from '@tanstack/react-query'
 import { TriangleAlertIcon } from 'lucide-react'
 import { useId, useState, type FormEvent } from 'react'
 import { toast } from 'sonner'
@@ -12,14 +13,21 @@ import { formatDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { ProdDialogActions } from './dialog-parts'
 import { useConfirmProduction } from './hooks'
-import { LAUNCH_RISK_DAYS, PROD_ERR, qtyText, readQty, relativeTo, savedQty } from './model'
-import { isStale, proposalLine } from './utils'
-import type { ProductionModel } from './types'
+import { defaultOrderDraft, LAUNCH_RISK_DAYS, latestOrder, orderErrors, orderFieldsOf, PROD_ERR, qtyText, readQty, relativeTo, savedQty, startRange } from './model'
+import { OrderFields } from './order-fields'
+import { isStale, orderFieldId, proposalLine, serverOrderErrors } from './utils'
+import type { OrderDraft, OrderErrors, OrderField, ProductionModel } from './types'
 
-/** What was typed in the dialog, per SKU, kept by the tab so closing or a 409 doesn't lose it; cleared after a confirm. */
-export interface TypedQty {
+/**
+ * What was entered in the dialog — the quantity text per SKU and the "ใบสั่งผลิต" fields (its schedule included) — kept
+ * by the tab so closing or a 409 doesn't lose it; cleared after a confirm.
+ */
+export interface ConfirmDraft {
   texts: Record<string, string>
-  set(productId: string, text: string): void
+  /** null until the order fields are first touched: the dialog then starts from the latest order (defaultOrderDraft). */
+  order: OrderDraft | null
+  setText(productId: string, text: string): void
+  setOrder(order: OrderDraft): void
   clear(): void
 }
 
@@ -27,18 +35,20 @@ interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
   model: ProductionModel
-  typed: TypedQty
+  draft: ConfirmDraft
 }
 
 /**
  * "ยืนยันเริ่มผลิต n SKU" (owner / manager): the whole pending set in one press. The quantities are typed here (never in
- * the table) with "วันที่ต้องการสินค้า" — these SKUs' delivery due date, starting at the plan deadline (§5.10, K7, K8).
+ * the table) with "วันที่ต้องการสินค้า" — these SKUs' delivery due date, starting at the plan deadline (§5.10, K7, K8) —
+ * and the "ใบสั่งผลิต" the press creates: บริษัทรับผลิต, an optional document number, "วันที่ดำเนินการ" (the production
+ * start of the set) with "ระยะเวลาผลิตทั้งหมด" (→ "ของถึงประมาณ") and the internal contacts.
  */
-export function ConfirmDialog({ open, onOpenChange, model, typed }: Props) {
+export function ConfirmDialog({ open, onOpenChange, model, draft }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
-        <ConfirmForm model={model} typed={typed} onDone={() => onOpenChange(false)} />
+        <ConfirmForm model={model} draft={draft} onDone={() => onOpenChange(false)} />
       </DialogContent>
     </Dialog>
   )
@@ -46,8 +56,9 @@ export function ConfirmDialog({ open, onOpenChange, model, typed }: Props) {
 
 const inputId = (formId: string, productId: string) => `${formId}-qty-${productId}`
 
-function ConfirmForm({ model, typed, onDone }: { model: ProductionModel; typed: TypedQty; onDone: () => void }) {
+function ConfirmForm({ model, draft, onDone }: { model: ProductionModel; draft: ConfirmDraft; onDone: () => void }) {
   const id = useId()
+  const qc = useQueryClient()
   const confirm = useConfirmProduction(model.proposal)
   const word = model.storeWord
   const today = model.today
@@ -61,9 +72,14 @@ function ConfirmForm({ model, typed, onDone }: { model: ProductionModel; typed: 
     }),
   )
   // What was typed before (dialog closed, a 409) wins; else a quantity kept from a confirm that was stepped back.
-  const [texts, setTexts] = useState<Record<string, string>>(() => Object.fromEntries(lines.map((l) => [l.row.productId, typed.texts[l.row.productId] ?? qtyText(l.saved)])))
+  const [texts, setTexts] = useState<Record<string, string>>(() => Object.fromEntries(lines.map((l) => [l.row.productId, draft.texts[l.row.productId] ?? qtyText(l.saved)])))
   const latest = latestNeededOn(today, model.targetDate)
   const [neededOn, setNeededOn] = useState<ISODate | null>(() => defaultNeededOn(model.summary.planDeadline, today, model.targetDate))
+  // "วันที่ดำเนินการ": from the set's earliest buyer pass up to the launch (the API's rule); starts today, kept in range.
+  const range = startRange(lines.map((l) => l.row), today, model.targetDate)
+  const [order, setOrderState] = useState<OrderDraft>(() => draft.order ?? defaultOrderDraft(model.orders, model.pickableIds, model.me.id, defaultOrderStart(range.rules.bounds, today)))
+  // A 422 naming an order field (e.g. a manufacturer deactivated meanwhile), shown under it until that form changes.
+  const [serverErrors, setServerErrors] = useState<OrderErrors>({})
   const [submitted, setSubmitted] = useState(false)
 
   const read = lines.map((l) => ({ ...l, ...readQty(texts[l.row.productId] ?? '') }))
@@ -75,10 +91,22 @@ function ConfirmForm({ model, typed, onDone }: { model: ProductionModel; typed: 
   // Same rule as the timeline's yellow: due closer to launch than LAUNCH_RISK_DAYS.
   const leftToLaunch = !needErr && neededOn ? diffDays(neededOn, model.targetDate) : null
   const risky = leftToLaunch != null && leftToLaunch < LAUNCH_RISK_DAYS
+  const orderErrs = orderErrors(order, range.rules)
+  const shownOrderErrs: OrderErrors = submitted ? { ...serverErrors, ...orderErrs } : serverErrors
 
   const setText = (productId: string, text: string) => {
     setTexts((prev) => ({ ...prev, [productId]: text }))
-    typed.set(productId, text)
+    draft.setText(productId, text)
+  }
+  const setOrder = (next: OrderDraft) => {
+    setOrderState(next)
+    setServerErrors({})
+    draft.setOrder(next)
+  }
+  const focusOrder = (errors: OrderErrors) => {
+    const first = Object.keys(errors)[0] as OrderField | undefined
+    if (first) document.getElementById(orderFieldId(id, first))?.focus()
+    return !!first
   }
   // On blur a valid number is regrouped ("500000" → "500,000").
   const tidy = (productId: string) => {
@@ -93,15 +121,25 @@ function ConfirmForm({ model, typed, onDone }: { model: ProductionModel; typed: 
       document.getElementById(inputId(id, invalid[0].row.productId))?.focus()
       return
     }
-    if (needErr || lines.length === 0 || !neededOn) return
+    if (needErr || lines.length === 0 || !neededOn || focusOrder(orderErrs)) return
     try {
-      await confirm.mutateAsync({ items: read.map((l) => ({ productId: l.row.productId, quantity: l.value!, saved: l.saved })), neededOn })
-      typed.clear()
-      toast.success(`ยืนยันเริ่มผลิต ${lines.length} SKU แล้ว`, { description: `ต้องการสินค้า ${formatDate(neededOn)}` })
+      const view = await confirm.mutateAsync({
+        items: read.map((l) => ({ productId: l.row.productId, quantity: l.value!, saved: l.saved })),
+        neededOn,
+        order: orderFieldsOf(order),
+      })
+      draft.clear()
+      const maker = latestOrder(view.orders)?.manufacturer.name
+      toast.success(`ยืนยันเริ่มผลิต ${lines.length} SKU แล้ว`, { description: [`ต้องการสินค้า ${formatDate(neededOn)}`, maker].filter(Boolean).join(' · ') })
       onDone()
     } catch (error) {
       // already toasted by the hook; a 409 means the pending set moved — the refetched tab shows the new one
-      if (isStale(error)) onDone()
+      if (isStale(error)) return onDone()
+      const fields = serverOrderErrors(error)
+      // A manufacturer deactivated or deleted meanwhile: the picker's list catches up.
+      if (fields.manufacturerId) void qc.invalidateQueries({ queryKey: ['manufacturers'] })
+      setServerErrors(fields)
+      focusOrder(fields)
     }
   }
 
@@ -110,7 +148,7 @@ function ConfirmForm({ model, typed, onDone }: { model: ProductionModel; typed: 
       <DialogHeader>
         <DialogTitle className="pr-6 leading-snug">ยืนยันเริ่มผลิต {lines.length} SKU</DialogTitle>
         <DialogDescription>
-          {proposalLine(model.proposal)} — กรอกจำนวนผลิตของแต่ละ SKU และวันที่ต้องการสินค้า เมื่อยืนยันแล้ว SKU เหล่านี้จะเปลี่ยนเป็น “กำลังผลิต” และนับถอยหลังถึงวันที่ต้องการสินค้า
+          {proposalLine(model.proposal)} — กรอกจำนวนผลิตของแต่ละ SKU วันที่ต้องการสินค้า และข้อมูลใบสั่งผลิต เมื่อยืนยันแล้ว SKU เหล่านี้จะเปลี่ยนเป็น “กำลังผลิต” และนับถอยหลังถึงวันที่ต้องการสินค้า
         </DialogDescription>
       </DialogHeader>
 
@@ -188,6 +226,16 @@ function ConfirmForm({ model, typed, onDone }: { model: ProductionModel; typed: 
       >
         <DateField id={`${id}-need`} value={neededOn} onChange={setNeededOn} min={today} max={latest} clearable={false} className="w-full sm:w-60" />
       </Field>
+
+      <OrderFields
+        formId={id}
+        model={model}
+        value={order}
+        onChange={setOrder}
+        errors={shownOrderErrs}
+        schedule={{ range, neededOn: needErr ? null : neededOn, warn: true }}
+        known={model.orders.map((o) => o.manufacturer)}
+      />
 
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
         <dt className="text-muted-foreground">Deadline ส่งคลัง (ตั้งต้น)</dt>

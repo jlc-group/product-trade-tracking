@@ -1,4 +1,4 @@
-import { BadgeCheckIcon, CheckCircle2Icon, FactoryIcon, PackageCheckIcon, PackageXIcon, TriangleAlertIcon, TruckIcon, type LucideIcon } from 'lucide-react'
+import { BadgeCheckIcon, CheckCircle2Icon, FactoryIcon, Loader2Icon, PackageCheckIcon, PackageXIcon, TriangleAlertIcon, TruckIcon, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { TONE_SOFT } from '@/features/presentation/model'
 import { cn } from '@/lib/utils'
@@ -18,8 +18,11 @@ const BUTTON_ICON: Record<NextCardButton['icon'], LucideIcon> = {
   delivered: TruckIcon,
 }
 
-/** "ขั้นต่อไป" of the production tab (same markup as the presentation NextActionCard): one button, or a calm note. */
-export function NextCard({ card, onAction }: { card: NextCardData; onAction: (a: ProductionTabAction) => void }) {
+/**
+ * "ขั้นต่อไป" of the production tab (same markup as the presentation NextActionCard): one button, or a calm note. `busy`
+ * holds the button (spinner, disabled) while what its dialog needs is still loading.
+ */
+export function NextCard({ card, onAction, busy }: { card: NextCardData; onAction: (a: ProductionTabAction) => void; busy?: boolean }) {
   const Icon = KIND_ICON[card.kind]
   const ButtonIcon = card.primary ? BUTTON_ICON[card.primary.icon] : null
   return (
@@ -36,8 +39,8 @@ export function NextCard({ card, onAction }: { card: NextCardData; onAction: (a:
         {(card.primary || card.note) && (
           <div className="flex flex-col gap-2 sm:ml-auto sm:shrink-0 sm:flex-row sm:items-center">
             {card.primary && ButtonIcon ? (
-              <Button className="w-full sm:w-auto" onClick={() => onAction(card.primary!.action)}>
-                <ButtonIcon />
+              <Button className="w-full sm:w-auto" disabled={busy} aria-busy={busy || undefined} onClick={() => onAction(card.primary!.action)}>
+                {busy ? <Loader2Icon className="animate-spin" /> : <ButtonIcon />}
                 {card.primary.label}
               </Button>
             ) : (

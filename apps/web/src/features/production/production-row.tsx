@@ -2,6 +2,7 @@ import { productionFlagLabel, productionRowActions, productionStatusLabel } from
 import {
   CalendarClockIcon,
   EllipsisIcon,
+  FileTextIcon,
   HashIcon,
   HistoryIcon,
   PackageCheckIcon,
@@ -20,7 +21,7 @@ import { useIsMobile } from '@/hooks/use-mobile'
 import { formatDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { ItemHistory } from './item-history'
-import { flagStripText, keepCopy, keptNote, rowMeta, statusSubLine, type SubLine } from './model'
+import { arrivalLine, flagStripText, keepCopy, keptNote, orderLine, relativeTo, rowMeta, statusSubLine, type SubLine } from './model'
 import { QuantityCell } from './quantity-cell'
 import { StatusChip } from './status-chip'
 import type { ProductionModel, ProductionRow, ProductionTabAction } from './types'
@@ -40,12 +41,16 @@ const SUB_TONE: Record<SubLine['tone'], string> = {
   muted: 'text-muted-foreground',
 }
 
-function StatusLines({ row, word, today }: { row: ProductionRow; word: string; today: string }) {
-  const sub = statusSubLine(row, today)
-  if (!sub && !row.needsReview) return null
+/** Under the status chip: the step's line (statusSubLine), "ของถึงประมาณ …" (arrivalLine) and the review flag. */
+function StatusLines({ row, word, lines }: { row: ProductionRow; word: string; lines: SubLine[] }) {
+  if (lines.length === 0 && !row.needsReview) return null
   return (
     <>
-      {sub && <span className={cn('tabular block text-xs', SUB_TONE[sub.tone])}>{sub.text}</span>}
+      {lines.map((l) => (
+        <span key={l.text} className={cn('tabular block text-xs', SUB_TONE[l.tone])}>
+          {l.text}
+        </span>
+      ))}
       {row.needsReview && row.flag && (
         <span className="inline-flex h-5 w-fit items-center gap-1 rounded-full bg-danger-soft px-2 text-[11px] font-medium text-danger">
           <TriangleAlertIcon className="size-3 shrink-0" aria-hidden />
@@ -88,11 +93,12 @@ function RowMenu({ row, model, onAction }: { row: ProductionRow; model: Producti
   const [historyOpen, setHistoryOpen] = useState(false)
   // The menu would hand focus back to ⋯ as it closes, which closes the history popover it just opened.
   const toHistory = useRef(false)
-  const a = productionRowActions(row, { canWork: model.canWork, canDecide: model.canDecide })
+  const a = productionRowActions(row, { canWork: model.canWork, canDecide: model.canDecide }, model.today)
   const id = row.productId
   const backToPending = a.backTo === 'PENDING'
   const decide = !!(a.backTo || a.cancel || a.skip || a.restoreTo)
-  const edit = a.editDates || a.editQuantity
+  const edit = a.editDates || a.editQuantity || a.editOrder
+  const orderId = row.item?.orderId
 
   return (
     <ItemHistory row={row} model={model} open={historyOpen} onOpenChange={setHistoryOpen} mobile={isMobile}>
@@ -119,6 +125,11 @@ function RowMenu({ row, model, onAction }: { row: ProductionRow; model: Producti
           {a.editDates && (
             <DropdownMenuItem onSelect={() => onAction({ kind: 'dates', productId: id })}>
               <CalendarClockIcon /> {row.status === 'IN_PRODUCTION' ? 'แก้วันที่ต้องการสินค้า…' : 'แก้วันที่…'}
+            </DropdownMenuItem>
+          )}
+          {a.editOrder && orderId && (
+            <DropdownMenuItem onSelect={() => onAction({ kind: 'editOrder', orderId })}>
+              <FileTextIcon /> แก้ข้อมูลใบสั่งผลิต…
             </DropdownMenuItem>
           )}
           {a.backTo && (
@@ -199,11 +210,14 @@ export function ProductionRowView({ row, model, onAction }: { row: ProductionRow
   const { product, item } = row
   const word = model.storeWord
   const meta = rowMeta(row, model.userName)
-  const a = productionRowActions(row, { canWork: model.canWork, canDecide: model.canDecide })
+  const order = item?.orderId ? model.orderById.get(item.orderId) : undefined
+  const orderText = order ? orderLine(order) : null
+  const a = productionRowActions(row, { canWork: model.canWork, canDecide: model.canDecide }, model.today)
   const forward = a.advanceTo === 'PRODUCED' || a.advanceTo === 'DELIVERED' ? a.advanceTo : null
   const muted = row.status === 'CANCELLED'
-  const statusLines = <StatusLines row={row} word={word} today={model.today} />
-  const hasLines = !!statusSubLine(row, model.today) || row.needsReview
+  const lines = [statusSubLine(row, model.today), arrivalLine(row, order, model.targetDate)].filter((l): l is SubLine => !!l)
+  const statusLines = <StatusLines row={row} word={word} lines={lines} />
+  const hasLines = lines.length > 0 || row.needsReview
 
   return (
     <li className={cn(ROW, 'py-3 @3xl:items-center')}>
@@ -218,6 +232,11 @@ export function ProductionRowView({ row, model, onAction }: { row: ProductionRow
           {product.size && <span className="text-muted-foreground"> · {product.size}</span>}
         </p>
         {meta && <p className="text-xs text-muted-foreground">{meta}</p>}
+        {orderText && (
+          <p className="truncate text-xs text-muted-foreground" title={orderText}>
+            {orderText}
+          </p>
+        )}
         {row.status === 'CANCELLED' && item?.cancelReason && (
           <p className="line-clamp-1 text-xs break-words text-muted-foreground" title={item.cancelReason}>
             “{item.cancelReason}”
@@ -243,6 +262,18 @@ export function ProductionRowView({ row, model, onAction }: { row: ProductionRow
         {statusLines}
       </div>
       {hasLines && <div className="col-span-2 flex flex-wrap items-center gap-x-2 gap-y-1 @3xl:hidden">{statusLines}</div>}
+
+      {/* A confirmed SKU whose production start is still ahead: when it starts, in place of "ผลิตเสร็จ". */}
+      {!forward && a.startsOn && (
+        <p className="tabular col-span-2 flex items-center gap-1.5 text-xs @3xl:col-span-1 @3xl:col-start-5 @3xl:block @3xl:text-right">
+          <CalendarClockIcon className="size-3.5 shrink-0 text-info @3xl:hidden" aria-hidden />
+          <span className="font-medium whitespace-nowrap text-info">เริ่มผลิต {formatDate(a.startsOn, { withYear: false })}</span>
+          <span className="text-muted-foreground @3xl:hidden" aria-hidden>
+            ·
+          </span>
+          <span className="whitespace-nowrap text-muted-foreground @3xl:block">{relativeTo(a.startsOn, model.today)}</span>
+        </p>
+      )}
 
       {forward && (
         <div className="col-span-2 @3xl:col-span-1 @3xl:col-start-5">

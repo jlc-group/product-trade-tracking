@@ -4,6 +4,7 @@ import {
   CheckIcon,
   CopyIcon,
   FactoryIcon,
+  FileTextIcon,
   FlagIcon,
   HistoryIcon,
   PackageCheckIcon,
@@ -53,6 +54,7 @@ const ACTION_STYLE: Record<string, { icon: LucideIcon; tone: string }> = {
   'production.skip': { icon: PackageXIcon, tone: 'bg-muted text-muted-foreground' },
   'production.restore': { icon: RotateCcwIcon, tone: 'bg-muted text-muted-foreground' },
   'production.keep': { icon: FactoryIcon, tone: 'bg-warning-soft text-warning-foreground' },
+  'production.order': { icon: FileTextIcon, tone: 'bg-muted text-muted-foreground' },
 }
 const FALLBACK_STYLE = { icon: PencilIcon, tone: 'bg-muted text-muted-foreground' }
 

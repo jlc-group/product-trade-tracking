@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
-import { ActiveSwitch, DeleteButton, EditButton, InactiveBadge, UsageLabel, useActiveToggle, type ConfirmFn } from './row-controls'
+import { ActiveSwitch, DeleteButton, EditButton, InactiveBadge, UsageLabel, useActiveToggle, type ConfirmFn, type UsedBy } from './row-controls'
 
 export interface MasterRowProps {
   name: string
@@ -20,17 +20,44 @@ export interface MasterRowProps {
   onSetActive: (active: boolean) => Promise<unknown>
   onDelete: () => Promise<unknown>
   deleteNote?: ReactNode
+  /** Shown when `description` is empty (default "ไม่มีคำอธิบาย"). */
+  emptyDescription?: string
+  /** Toast hints of the active switch (default: the proposal wizard's wording). */
+  onHint?: string
+  offHint?: string
+  /** What uses the record, for the delete guard's copy (default: proposals). */
+  usedBy?: UsedBy
 }
 
-/** One store / shelf-type row: identity on the left, usage + active switch + actions on the right. */
-export function MasterRow({ name, noun, description, isActive, usage, leading, meta, handle, confirm, onEdit, onSetActive, onDelete, deleteNote }: MasterRowProps) {
-  const { checked, pending, toggle } = useActiveToggle({ name, isActive, setActive: onSetActive })
+/** One store / shelf-type / manufacturer row: identity on the left, usage + active switch + actions on the right. */
+export function MasterRow({
+  name,
+  noun,
+  description,
+  isActive,
+  usage,
+  leading,
+  meta,
+  handle,
+  confirm,
+  onEdit,
+  onSetActive,
+  onDelete,
+  deleteNote,
+  emptyDescription = 'ไม่มีคำอธิบาย',
+  onHint,
+  offHint,
+  usedBy,
+}: MasterRowProps) {
+  const { checked, pending, toggle } = useActiveToggle({ name, isActive, setActive: onSetActive, onHint, offHint })
   const muted = !checked
 
   return (
-    <div className="flex items-start gap-2 py-3 pr-3 pl-1.5 sm:items-center sm:gap-3 sm:pr-4 sm:pl-2">
+    // Side by side only when the row itself is wide enough (a long name squeezed beside the controls is unreadable,
+    // e.g. a tablet with the sidebar open), so the layout follows the row's width, not the viewport's.
+    <div className="@container flex items-start gap-2 py-3 pr-3 pl-1.5 sm:items-center sm:gap-3 sm:pr-4 sm:pl-2">
       {handle && <div className="pt-1.5 sm:pt-0">{handle}</div>}
-      <div className="flex min-w-0 flex-1 flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-4">
+      <div className="flex min-w-0 flex-1 flex-col gap-2.5 @2xl:flex-row @2xl:items-center @2xl:gap-4">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <div className={cn('shrink-0 transition', muted && 'opacity-45 grayscale-[60%]')}>{leading}</div>
           <div className="min-w-0 flex-1">
@@ -39,17 +66,27 @@ export function MasterRow({ name, noun, description, isActive, usage, leading, m
               {meta}
               {muted && <InactiveBadge />}
             </div>
-            <p className={cn('mt-0.5 line-clamp-2 text-sm text-muted-foreground sm:line-clamp-1', muted && 'opacity-80')}>{description || <span className="italic opacity-70">ไม่มีคำอธิบาย</span>}</p>
+            <p className={cn('mt-0.5 line-clamp-2 text-sm text-muted-foreground @2xl:line-clamp-1', muted && 'opacity-80')}>{description || <span className="italic opacity-70">{emptyDescription}</span>}</p>
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 sm:justify-end sm:gap-4">
-          <UsageLabel count={usage} className="sm:w-32 sm:justify-start" />
+        <div className="flex items-center justify-between gap-3 @2xl:justify-end @2xl:gap-4">
+          <UsageLabel count={usage} className="@2xl:w-32 @2xl:justify-start" />
           <div className="flex items-center gap-1">
             <ActiveSwitch name={name} checked={checked} pending={pending} onCheckedChange={toggle} />
-            <span className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden />
+            <span className="mx-1 hidden h-5 w-px bg-border @2xl:block" aria-hidden />
             <EditButton name={name} onClick={onEdit} />
-            <DeleteButton name={name} noun={noun} usage={usage} isActive={checked} confirm={confirm} onDelete={onDelete} onDeactivate={() => toggle(false)} deleteNote={deleteNote} />
+            <DeleteButton
+              name={name}
+              noun={noun}
+              usage={usage}
+              isActive={checked}
+              confirm={confirm}
+              onDelete={onDelete}
+              onDeactivate={() => toggle(false)}
+              deleteNote={deleteNote}
+              usedBy={usedBy}
+            />
           </div>
         </div>
       </div>

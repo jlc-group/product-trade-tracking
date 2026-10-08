@@ -49,6 +49,7 @@ enum EntityType {
   USER
   TEMPLATE
   DEPARTMENT
+  MANUFACTURER
 }
 
 enum DescriptionFormat {
@@ -117,6 +118,7 @@ enum ProductionEventKind {
   CANCEL
   RESTORE
   KEEP
+  ORDER
 }
 
 model User {
@@ -141,25 +143,28 @@ model User {
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  departmentRef        Department?           @relation(fields: [department], references: [name], onDelete: Restrict, onUpdate: Cascade)
-  sessions             Session[]
-  ownedProposals       Proposal[]            @relation("ProposalOwner")
-  memberships          ProposalMember[]
-  assignments          TaskAssignee[]
-  createdTasks         Task[]                @relation("TaskCreatedBy")
-  completedTasks       Task[]                @relation("TaskCompletedBy")
-  comments             Comment[]
-  activity             ActivityLog[]
-  notifications        Notification[]
-  presentationPackages PresentationPackage[]
-  presentationEvents   PresentationEvent[]
-  productionPlans      ProductionPlan[]      @relation("ProductionPlanUpdatedBy")
-  productionConfirmed  ProductionItem[]      @relation("ProductionItemConfirmedBy")
-  productionProduced   ProductionItem[]      @relation("ProductionItemProducedBy")
-  productionDelivered  ProductionItem[]      @relation("ProductionItemDeliveredBy")
-  productionCancelled  ProductionItem[]      @relation("ProductionItemCancelledBy")
-  productionKept       ProductionItem[]      @relation("ProductionItemKeptBy")
-  productionEvents     ProductionEvent[]     @relation("ProductionEventActor")
+  departmentRef             Department?              @relation(fields: [department], references: [name], onDelete: Restrict, onUpdate: Cascade)
+  sessions                  Session[]
+  ownedProposals            Proposal[]               @relation("ProposalOwner")
+  memberships               ProposalMember[]
+  assignments               TaskAssignee[]
+  createdTasks              Task[]                   @relation("TaskCreatedBy")
+  completedTasks            Task[]                   @relation("TaskCompletedBy")
+  comments                  Comment[]
+  activity                  ActivityLog[]
+  notifications             Notification[]
+  presentationPackages      PresentationPackage[]
+  presentationEvents        PresentationEvent[]
+  productionPlans           ProductionPlan[]         @relation("ProductionPlanUpdatedBy")
+  productionConfirmed       ProductionItem[]         @relation("ProductionItemConfirmedBy")
+  productionProduced        ProductionItem[]         @relation("ProductionItemProducedBy")
+  productionDelivered       ProductionItem[]         @relation("ProductionItemDeliveredBy")
+  productionCancelled       ProductionItem[]         @relation("ProductionItemCancelledBy")
+  productionKept            ProductionItem[]         @relation("ProductionItemKeptBy")
+  productionEvents          ProductionEvent[]        @relation("ProductionEventActor")
+  productionOrdersMain      ProductionOrder[]        @relation("ProductionOrderMainContact")
+  productionOrdersConfirmed ProductionOrder[]        @relation("ProductionOrderConfirmedBy")
+  productionOrderContacts   ProductionOrderContact[]
 
   @@map("users")
 }
@@ -256,6 +261,23 @@ model Product {
   @@map("products")
 }
 
+/// Companies that produce our SKUs ("บริษัทรับผลิต") — picked on every production order (admins manage the list).
+model Manufacturer {
+  id        String   @id @default(uuid()) @db.Uuid
+  /// Unique ignoring case and never blank (index / CHECK in migration).
+  name      String
+  /// Optional address / phone / remark.
+  note      String?
+  sortOrder Int      @default(0) @map("sort_order")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  orders ProductionOrder[]
+
+  @@map("manufacturers")
+}
+
 /// One listing project: products → one or more stores (one shared task list) → one shelf type → target on-shelf date.
 model Proposal {
   id          String         @id @default(uuid()) @db.Uuid
@@ -288,6 +310,7 @@ model Proposal {
   productionPlan       ProductionPlan?
   productionItems      ProductionItem[]
   productionEvents     ProductionEvent[]
+  productionOrders     ProductionOrder[]
 
   @@index([status, targetDate])
   @@index([ownerId])
@@ -610,10 +633,13 @@ model ProductionItem {
   /// The real press of "ยืนยันเริ่มผลิต" (who / when).
   confirmedAt   DateTime?        @map("confirmed_at") @db.Timestamptz(3)
   confirmedById String?          @map("confirmed_by_id") @db.Uuid
-  /// Business date (Asia/Bangkok) production started: the earliest pass of the confirmed set (older rows: a picked date).
+  /// Business date (Asia/Bangkok) production starts: its order's "วันที่ดำเนินการ" (may be after today); rows confirmed
+  /// before order schedules existed: the earliest pass of the confirmed set (older rows: a picked date).
   startedOn     DateTime?        @map("started_on") @db.Date
   /// "วันที่ต้องการสินค้า" picked at confirm: this SKU's delivery due date; null = the plan deadline (rows confirmed before it existed).
   neededOn      DateTime?        @map("needed_on") @db.Date
+  /// The "ใบสั่งผลิต" of the press that confirmed it; null = never confirmed, or confirmed before orders existed (CHECK in migration).
+  orderId       String?          @map("order_id") @db.Uuid
   producedOn    DateTime?        @map("produced_on") @db.Date
   producedById  String?          @map("produced_by_id") @db.Uuid
   deliveredOn   DateTime?        @map("delivered_on") @db.Date
@@ -638,11 +664,66 @@ model ProductionItem {
   deliveredBy User?             @relation("ProductionItemDeliveredBy", fields: [deliveredById], references: [id], onDelete: Restrict)
   cancelledBy User?             @relation("ProductionItemCancelledBy", fields: [cancelledById], references: [id], onDelete: Restrict)
   keptBy      User?             @relation("ProductionItemKeptBy", fields: [keptById], references: [id], onDelete: Restrict)
+  /// NO ACTION (checked at statement end), so a proposal delete that cascades to both items and orders works.
+  order       ProductionOrder?  @relation(fields: [orderId], references: [id], onDelete: NoAction)
   events      ProductionEvent[]
 
   @@unique([proposalId, productId])
   @@index([productId])
+  @@index([orderId])
   @@map("production_items")
+}
+
+/// "ใบสั่งผลิต": one per press of "ยืนยันเริ่มผลิต", covering every SKU confirmed by it (production_items.order_id). An
+/// order left without items (stepped back to PENDING) is deleted; the owner / a manager may edit it any time.
+model ProductionOrder {
+  id             String    @id @default(uuid()) @db.Uuid
+  proposalId     String    @map("proposal_id") @db.Uuid
+  /// 1, 2, … per proposal ("ใบสั่งผลิตที่ n"), never reused: next = 1 + the highest number the proposal's orders and
+  /// production events (detail orderSeq) carry, under the proposal lock.
+  seq            Int
+  /// "รหัสเอกสารอ้างอิง" (e.g. a PO / PR number), trimmed; null = none, never blank (CHECK in migration).
+  referenceNo    String?   @map("reference_no")
+  manufacturerId String    @map("manufacturer_id") @db.Uuid
+  /// "ผู้ติดต่อหลัก" (an internal user); never also listed as a co-contact (the service keeps them apart).
+  mainContactId  String    @map("main_contact_id") @db.Uuid
+  /// The press that created it (its items carry the same confirmedAt / confirmedById).
+  confirmedAt    DateTime  @map("confirmed_at") @db.Timestamptz(3)
+  confirmedById  String    @map("confirmed_by_id") @db.Uuid
+  /// "วันที่ดำเนินการ" = production start (business date), also the startedOn of every item carrying the order. With
+  /// productionDays both set or both null (orders confirmed before it existed); CHECKs in migration.
+  startedOn      DateTime? @map("started_on") @db.Date
+  /// "ระยะเวลาผลิตทั้งหมด (ประมาณ)", 1–365 days; expected arrival = startedOn + productionDays (never stored).
+  productionDays Int?      @map("production_days")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  /// Touched by every edit: the stale guard of PATCH …/production/orders/:orderId.
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  proposal     Proposal                 @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  manufacturer Manufacturer             @relation(fields: [manufacturerId], references: [id], onDelete: Restrict)
+  mainContact  User                     @relation("ProductionOrderMainContact", fields: [mainContactId], references: [id], onDelete: Restrict)
+  confirmedBy  User                     @relation("ProductionOrderConfirmedBy", fields: [confirmedById], references: [id], onDelete: Restrict)
+  contacts     ProductionOrderContact[]
+  items        ProductionItem[]
+
+  @@unique([proposalId, seq])
+  @@index([manufacturerId])
+  @@index([mainContactId])
+  @@map("production_orders")
+}
+
+/// "ผู้ติดต่อร่วม" of a production order (internal users; the main contact is never listed here).
+model ProductionOrderContact {
+  orderId String   @map("order_id") @db.Uuid
+  userId  String   @map("user_id") @db.Uuid
+  addedAt DateTime @default(now()) @map("added_at") @db.Timestamptz(3)
+
+  order ProductionOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user  User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@id([orderId, userId])
+  @@index([userId])
+  @@map("production_order_contacts")
 }
 
 /// Append-only production log of a proposal; item_id is null only for PLAN.
@@ -663,7 +744,9 @@ model ProductionEvent {
   leadDaysAfter  Int?                @map("lead_days_after")
   /// CANCEL reason.
   reason         String?
-  /// DATES: { producedOn?: [before, after], deliveredOn?: [before, after] }; PLAN: { noteChanged }; KEEP: { storeIds }; else {}.
+  /// DATES: { neededOn? | producedOn? | deliveredOn?: [before, after] }; CONFIRM: { neededOn, orderId?, orderSeq?,
+  /// manufacturerName?, referenceNo? }; ORDER (an order edit, one per item of it): { orderId, orderSeq, referenceNo? |
+  /// manufacturer? | mainContactId?: [before, after], coContacts?: { added, removed } }; PLAN: { noteChanged }; KEEP: { storeIds }; else {}.
   detail         Json                @default("{}")
 
   proposal Proposal        @relation(fields: [proposalId], references: [id], onDelete: Cascade)

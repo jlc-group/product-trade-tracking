@@ -4,7 +4,7 @@ import { TONE_SOFT } from '@/features/presentation/model'
 import { Callout } from '@/features/wizard/choice-card'
 import { formatDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { deadlineChip, LAUNCH_RISK_DAYS, timelineAlerts, timelinePoints, type TimelineBand } from './model'
+import { deadlineChip, LAUNCH_RISK_DAYS, orderArrivalAlerts, timelineAlerts, timelinePoints, type TimelineBand } from './model'
 import { PlanPopover } from './plan-popover'
 import type { ProductionModel } from './types'
 
@@ -28,13 +28,15 @@ function Band({ band, label, fill, text }: { band: TimelineBand; label: ReactNod
   )
 }
 
-/** ผ่าน Buyer → วันนี้ → Deadline ผลิต/ส่งคลัง → วางขาย, with the lead-days footer (§5.7). */
+/** ผ่าน Buyer → วันนี้ → Deadline ผลิต/ส่งคลัง → วางขาย, with the lead-days footer (§5.7) and the orders arriving late. */
 export function DeadlineTimeline({ model }: { model: ProductionModel }) {
   const view = model.view
   if (!view) return null
   const s = view.summary
   const { points, todayPos, riskBand, lateBand } = timelinePoints(view, model.storeWord)
   const alerts = timelineAlerts(points)
+  // One small line per order whose "ของถึงประมาณ" is after its need date (yellow) or the launch (red).
+  const arrivals = orderArrivalAlerts(model.orders, model.rowById, model.targetDate)
   // Bands are drawn only when they mean something, labelled on the bar: red = past the deadline (wins), yellow = the
   // risk window while something sits in it.
   const band = !lateBand && alerts.warning.length > 0 ? riskBand : null
@@ -64,10 +66,20 @@ export function DeadlineTimeline({ model }: { model: ProductionModel }) {
         )}
       </div>
 
-      {(alerts.danger.length > 0 || alerts.warning.length > 0) && (
+      {(alerts.danger.length > 0 || alerts.warning.length > 0 || arrivals.length > 0) && (
         <div className="mt-4 space-y-2">
           {alerts.danger.length > 0 && <TimelineAlert tone="danger" title="Timeline เกินกำหนด" lines={alerts.danger} />}
           {alerts.warning.length > 0 && <TimelineAlert tone="warning" title="Timeline ใกล้วันวางขายเกินไป — มีความเสี่ยง" lines={alerts.warning} />}
+          {arrivals.length > 0 && (
+            <ul className="space-y-1" aria-label="ใบสั่งผลิตที่ของถึงช้า">
+              {arrivals.map((a) => (
+                <li key={a.text} className={cn('flex items-start gap-1.5 text-xs font-medium', FLAG_TEXT[a.tone])}>
+                  {a.tone === 'danger' ? <CircleAlertIcon className="mt-px size-3.5 shrink-0" aria-hidden /> : <TriangleAlertIcon className="mt-px size-3.5 shrink-0" aria-hidden />}
+                  <span className="tabular min-w-0 break-words">{a.text}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 

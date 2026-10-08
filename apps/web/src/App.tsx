@@ -17,6 +17,7 @@ const AdminMonitorPage = lazy(() => import('@/pages/admin/monitor'))
 const AdminStoresPage = lazy(() => import('@/pages/admin/stores'))
 const AdminShelfTypesPage = lazy(() => import('@/pages/admin/shelf-types'))
 const AdminProductsPage = lazy(() => import('@/pages/admin/products'))
+const AdminManufacturersPage = lazy(() => import('@/pages/admin/manufacturers'))
 const AdminTemplatesPage = lazy(() => import('@/pages/admin/templates'))
 const AdminUsersPage = lazy(() => import('@/pages/admin/users'))
 const AdminDepartmentsPage = lazy(() => import('@/pages/admin/departments'))
@@ -60,6 +61,7 @@ function AppRoutes() {
             <Route path="stores" element={<RequirePermission permission="store.manage"><AdminStoresPage /></RequirePermission>} />
             <Route path="shelf-types" element={<RequirePermission permission="shelfType.manage"><AdminShelfTypesPage /></RequirePermission>} />
             <Route path="products" element={<RequirePermission permission="product.manage"><AdminProductsPage /></RequirePermission>} />
+            <Route path="manufacturers" element={<RequirePermission permission="manufacturer.manage"><AdminManufacturersPage /></RequirePermission>} />
             <Route path="templates" element={<RequirePermission permission="template.manage"><AdminTemplatesPage /></RequirePermission>} />
             <Route path="users" element={<RequirePermission permission="user.manage"><AdminUsersPage /></RequirePermission>} />
             <Route path="departments" element={<RequirePermission permission="department.manage"><AdminDepartmentsPage /></RequirePermission>} />

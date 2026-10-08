@@ -18,6 +18,7 @@ export const PERMISSIONS = [
   'template.manage',
   'user.manage',
   'department.manage',
+  'manufacturer.manage',
   'activity.read.all',
 ] as const
 
@@ -52,6 +53,7 @@ export const PERMISSION_LABEL: Record<Permission, string> = {
   'template.manage': 'จัดการแม่แบบ Task',
   'user.manage': 'จัดการผู้ใช้และสิทธิ์',
   'department.manage': 'จัดการรายชื่อแผนก',
+  'manufacturer.manage': 'จัดการรายชื่อบริษัทรับผลิต',
   'activity.read.all': 'ดูประวัติการใช้งานทั้งหมด',
 }
 

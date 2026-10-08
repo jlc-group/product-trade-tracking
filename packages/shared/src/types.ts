@@ -81,6 +81,18 @@ export interface Product {
   updatedAt: ISODateTime
 }
 
+/** A company that produces our SKUs ("บริษัทรับผลิต", admin-managed list); every production order names one. */
+export interface Manufacturer {
+  id: string
+  name: string
+  /** Optional address / phone / remark. */
+  note: string | null
+  sortOrder: number
+  isActive: boolean
+  createdAt: ISODateTime
+  updatedAt: ISODateTime
+}
+
 /** One listing project: products → one or more stores (one shared task list) → one shelf type → target on-shelf date. */
 export interface Proposal {
   id: string
@@ -187,7 +199,7 @@ export interface Comment {
   createdAt: ISODateTime
 }
 
-export type EntityType = 'PROPOSAL' | 'TASK' | 'STORE' | 'SHELF_TYPE' | 'PRODUCT' | 'USER' | 'TEMPLATE' | 'DEPARTMENT'
+export type EntityType = 'PROPOSAL' | 'TASK' | 'STORE' | 'SHELF_TYPE' | 'PRODUCT' | 'USER' | 'TEMPLATE' | 'DEPARTMENT' | 'MANUFACTURER'
 
 export interface ActivityLog {
   id: string

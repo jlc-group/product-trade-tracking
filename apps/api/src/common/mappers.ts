@@ -6,6 +6,7 @@ import {
   type AppNotification,
   type Comment,
   type DetailField,
+  type Manufacturer,
   type Product,
   type Proposal,
   type ShelfType,
@@ -85,6 +86,10 @@ export function toShelfType(s: Prisma.ShelfTypeGetPayload<object>): ShelfType {
 
 export function toProduct(p: Prisma.ProductGetPayload<object>): Product {
   return { id: p.id, sku: p.sku, name: p.name, brand: p.brand, category: p.category, barcode: p.barcode, size: p.size, isActive: p.isActive, createdAt: iso(p.createdAt), updatedAt: iso(p.updatedAt) }
+}
+
+export function toManufacturer(m: Prisma.ManufacturerGetPayload<object>): Manufacturer {
+  return { id: m.id, name: m.name, note: m.note, sortOrder: m.sortOrder, isActive: m.isActive, createdAt: iso(m.createdAt), updatedAt: iso(m.updatedAt) }
 }
 
 export function toProposal(p: ProposalRow): Proposal {

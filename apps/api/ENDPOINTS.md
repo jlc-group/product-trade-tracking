@@ -24,6 +24,17 @@ Validation and error messages are Thai and are shown to users as-is. The web cli
   An inactive department can't be newly assigned (422 `แผนกนี้ถูกปิดการใช้งานแล้ว`), but a user who already has it
   keeps it. DB: FK `users.department → departments(name)` ON UPDATE CASCADE (a rename follows on every user)
   ON DELETE RESTRICT. Department changes are written to the activity log (entity type `DEPARTMENT`).
+- **Manufacturer** ("บริษัทรับผลิต", `/manufacturers`): the admin-managed list every production order picks from
+  (`manufacturer.manage` = ADMIN only; nothing is seeded). Names are trimmed with inner spaces collapsed, 1–120
+  characters, unique ignoring case among active and inactive ones (422, field `name`); `note` (address / phone /
+  remark) is optional, ≤ 500, `''` → `null`. Any signed-in user may list them, inactive ones included (names aren't
+  sensitive: the confirm dialog's picker shows an inactive current value and tells a typed inactive name apart from a
+  new one). Anyone with `proposal.create` may add one (the confirm dialog's inline add) but only `manufacturer.manage`
+  renames, (de)activates, reorders or deletes. An inactive manufacturer can't be newly picked (422 `{name}
+  ถูกปิดการใช้งานแล้ว — เลือกบริษัทอื่น`) but the orders that name it keep it, and the production view embeds its
+  current name. DB: unique index on `lower(name)`, `CHECK (btrim(name) <> '')`, FK
+  `production_orders.manufacturer_id` ON DELETE RESTRICT (in use → 409 `IN_USE`). Changes are written to the activity
+  log (entity type `MANUFACTURER`, actions `manufacturer.create|update|delete|reorder`).
 - **Responsible department**: `Task.responsible` / `TaskTemplateItem.responsible` / plan `responsible` is free text
   (e.g. `NPD`, `Graphics`; suggestions in `DEFAULT_DEPARTMENTS`) — trimmed, `''` → `null`, max 100 characters.
 - **Task details**: `Task.descriptionFormat` is `TEXT` (details = `description`) or `FIELDS` (details = `detailFields`,
@@ -70,13 +81,15 @@ Validation and error messages are Thai and are shown to users as-is. The web cli
   (`PENDING`; new quantities are only entered at confirm), the confirmation (`IN_PRODUCTION`: `confirmedAt` /
   `confirmedById` = the real press, `neededOn` = "วันที่ต้องการสินค้า", this SKU's delivery due date picked at confirm —
   today … the launch date (only today once the launch has passed), default the plan deadline clamped into that range;
-  `startedOn` = the earliest pass of the confirmed set, set by the server; rows confirmed before `neededOn` existed
+  `startedOn` = the production start = its order's `startedOn` ("วันที่ดำเนินการ", may be after today; rows confirmed
+  before order schedules existed: the earliest pass of the confirmed set); rows confirmed before `neededOn` existed
   have it null and are due on the plan deadline), `PRODUCED` (`producedOn`), `DELIVERED`
   (`deliveredOn`, plus `dueOn` = the row's due date frozen at delivery, so a later lead-day / launch change never re-grades
   it), `CANCELLED` (a confirmed SKU: "ยกเลิกผลิต"; a never-confirmed one: "ไม่ผลิต", a skip), and `ackStoreIds` = the
-  passing stores the confirmed quantity was decided for. Every route answers the whole `ProductionView`
-  (`{ version: 1, proposalId, today, targetDate, plan, rows, summary, pendingIds, events }`; rows in proposal SKU
-  order, then SKUs no longer in the proposal by SKU; `events` newest first, ≤ 200). Shown rows: every passed SKU
+  passing stores the confirmed quantity was decided for, and `orderId` = the production order of the press that
+  confirmed it. Every route answers the whole `ProductionView` (`{ version: 1, proposalId, today, targetDate, plan,
+  rows, summary, pendingIds, events, orders }`; rows in proposal SKU order, then SKUs no longer in the proposal by SKU;
+  `events` newest first, ≤ 200; `orders` by `seq`). Shown rows: every passed SKU
   (status from its row, `PENDING` without one), every confirmed SKU even when it no longer passes (flagged, never
   dropped) and confirmed-then-cancelled SKUs; a kept quantity or a skip of a SKU that no longer passes is hidden (kept in the
   DB; it comes back with the pass). Flags of confirmed rows: `NOT_IN_PROPOSAL`, `NOT_PASSED` (no store passes it any
@@ -86,23 +99,73 @@ Validation and error messages are Thai and are shown to users as-is. The web cli
   moves it. Each row's due date (`row.dueOn`) = its frozen `dueOn` once delivered, else its `neededOn`, else that plan
   deadline; `summary.deadline` = the earliest due of the rows not delivered yet (`planDeadline` when none). Late:
   undelivered after its due date → `OVERDUE`; delivered after its `dueOn` → `DELIVERED_LATE`.
+  **Production orders** ("ใบสั่งผลิต"): each confirm press creates one order covering every SKU it confirmed (their
+  `orderId`; rows confirmed before orders existed keep `null`), numbered per proposal ("ใบสั่งผลิตที่ n"; `seq` = 1 +
+  the highest of the proposal's orders' `seq` and its production events' `detail.orderSeq`, under the proposal lock —
+  a number is never reused, so a deleted order's number, still in its SKUs' history, is skipped), with `referenceNo`
+  ("รหัสเอกสารอ้างอิง", optional: trimmed, runs of spaces collapsed, blank → `null`; > 100 → 422
+  `รหัสเอกสารอ้างอิงยาวเกิน 100 ตัวอักษร`), a manufacturer (required: missing / `null` / `''` → 422
+  `เลือกบริษัทรับผลิต`; unknown → 422 `ไม่พบบริษัทรับผลิตที่เลือก`; inactive → 422 `{name} ถูกปิดการใช้งานแล้ว —
+  เลือกบริษัทอื่น`), one main contact (required: missing / `null` / `''` → 422 `เลือกผู้ติดต่อหลัก`) and 0–20
+  co-contacts (`เลือกผู้ติดต่อร่วมได้ไม่เกิน 20 คน`; the main contact among them → `ผู้ติดต่อหลักอยู่ในรายชื่อผู้ติดต่อร่วมด้วย
+  — เลือกคนละคน`), and a schedule: `startedOn` ("วันที่ดำเนินการ" = the production start, also the `startedOn` of every
+  SKU on the order; required: missing / `null` / `''` → 422 `เลือกวันที่เริ่มผลิต`; within `orderStartBounds` — from the
+  earliest buyer pass of the order's SKUs (on confirm today when none passes; on an order edit the earliest start already
+  recorded on its SKUs when none passes any more; 422 `วันที่เริ่มผลิตต้องไม่ก่อนวันที่ผ่าน Buyer (…)`) to
+  the launch date, or today once the launch has passed (422 `วันที่เริ่มผลิตต้องไม่เกิน …`); it may be after today) and
+  `productionDays` ("ระยะเวลาผลิตทั้งหมด (ประมาณ)"; required: missing / `null` / `''` → 422 `กรอกระยะเวลาผลิต`; an
+  integer 1–365, else 422 `ระยะเวลาผลิตต้องเป็นจำนวนเต็ม 1–365 วัน`). The view adds `expectedOn` ("ของถึงประมาณ" =
+  `startedOn + productionDays`, `orderExpectedOn`, never stored); all three are `null` only on orders confirmed before
+  schedules existed (DB CHECKs: both or neither, days 1–365). A SKU whose start is after today can't be marked produced
+  yet (a produced date ≤ today would be before it: 422 `วันที่ผลิตเสร็จต้องไม่ก่อน …`). Contacts are
+  internal users, checked main contact first, then co-contacts: each one newly in that role must exist (422
+  `ไม่พบผู้ใช้ที่เลือก`), be active (422 `{name} ถูกปิดการใช้งานแล้ว — เลือกคนอื่น`) and be able to open the proposal —
+  the owner, members, assignees of its tasks, active ADMIN / MANAGER (else 422 `เลือกผู้ติดต่อได้เฉพาะทีมโปรเจกต์
+  ผู้รับผิดชอบงาน หรือผู้จัดการ — เพิ่มสมาชิกได้ที่หัวโปรเจกต์`). These 422s carry `fields` keyed `manufacturerId` /
+  `referenceNo` / `startedOn` / `productionDays` / `mainContactId` / `coContactIds` (every rule broken by the shared
+  `orderFieldErrors`, in that order, the message being the first; the contact checks name the field of the person
+  refused; a body of the wrong shape answers zod's keys, `order.…` on confirm). An edit
+  keeps the order's current manufacturer, and each current contact in the role they hold (the main contact staying
+  main, a co-contact staying co), even when deactivated or off the team since; moving someone between main and co, or
+  naming someone new, is checked like a new pick. Each order in the view embeds `manufacturer` `{ id, name, isActive }`,
+  `mainContact` / `coContacts` (`ProductionPerson`, co-contacts by Thai name) and `confirmedBy` (`ProductionPerson`;
+  `confirmedById` stays), so renamed and deactivated ones still show, and `productIds` (its SKUs, any status, row
+  order). Stepping a SKU back to PENDING takes it off its order, and an order left without SKUs is deleted (the `back`
+  activity summary then adds `· ลบใบสั่งผลิตที่ n (บริษัท · เอกสาร …) ที่ไม่เหลือ SKU`); CONFIRM
+  events keep the order as confirmed (`date` = its start; `detail` `{ neededOn, orderId, orderSeq, manufacturerName,
+  referenceNo, startedOn, productionDays, expectedOn, mainContactId, mainContactName, coContactIds, coContactNames }`, the schedule absent on events written before it existed). An
+  order edit writes one `ORDER` event per SKU of the order (status unchanged; `detail` `{ orderId, orderSeq,
+  referenceNo?: [before, after], manufacturer?: [beforeName, afterName], startedOn?: [before | null, after],
+  productionDays?: [before | null, after], mainContactId?: [before, after],
+  mainContactName?: [before, after], coContacts?: { added, removed }, coContactNames?: { added, removed } }` — the
+  names are nickname or else name as of the edit, in the same order as the ids; events written before the names were
+  stored have only the ids).
   **Who**: view = can view the proposal (else 404); team = `canWorkProduction` (owner, members, MANAGER, ADMIN; else
   403 `เฉพาะเจ้าของและทีมงานบันทึกการผลิตได้`): the note, advance, produced / delivered dates; decide =
   `canDecideProduction` (owner, MANAGER, ADMIN): confirm with the quantities (403 `ยืนยันเริ่มผลิตได้เฉพาะเจ้าของโปรเจกต์หรือผู้จัดการ`),
   lead days (403 `ตั้ง deadline ได้เฉพาะเจ้าของโปรเจกต์หรือผู้จัดการ`), `neededOn` edits (403 `แก้วันที่ต้องการสินค้าได้เฉพาะเจ้าของโปรเจกต์หรือผู้จัดการ`), quantities of confirmed SKUs (403
   `จำนวนผลิตที่ยืนยันแล้วแก้ได้เฉพาะเจ้าของโปรเจกต์หรือผู้จัดการ`), back, cancel / skip, restore, keep (403
-  `เฉพาะเจ้าของโปรเจกต์หรือผู้จัดการ`). A CANCELLED proposal is read-only (422 `โปรเจกต์นี้ถูกยกเลิกแล้ว`, checked
+  `เฉพาะเจ้าของโปรเจกต์หรือผู้จัดการ`), order edits (403 `แก้ข้อมูลใบสั่งผลิตได้เฉพาะเจ้าของโปรเจกต์หรือผู้จัดการ`). A
+  CANCELLED proposal is read-only (422 `โปรเจกต์นี้ถูกยกเลิกแล้ว`, checked
   before 403). Every write locks the proposal row first (the lock presentation writes, task toggles and proposal edits
   take, so the passed set can't move under a confirm), sends what it expects (`from`, `before` / `saved`, the pending
   set, the store ids) and answers 409 `STALE` when that moved: `สถานะของ {SKU} เปลี่ยนไปแล้ว — โหลดข้อมูลล่าสุดให้แล้ว
   ลองอีกครั้ง`, `{SKU} ไม่ได้อยู่ในรายการรอผลิตแล้ว — …`, `รายการ SKU ที่รอยืนยันเปลี่ยนไปแล้ว — …`, `ไม่มี SKU ที่รอยืนยันแล้ว
-  — …`, `จำนวนผลิตของ {SKU} ถูกแก้ไขโดยผู้อื่นแล้ว — …`; `/items/:productId` of a SKU the tab does not list → 404
-  `ข้อมูลนี้เปลี่ยนไปแล้ว — …`. Rule copy (422) is the shared `PERR` (quantity `จำนวนผลิตต้องเป็นจำนวนเต็ม 1–1,000,000
+  — …`, `จำนวนผลิตของ {SKU} ถูกแก้ไขโดยผู้อื่นแล้ว — …`, `ข้อมูลใบสั่งผลิตถูกแก้ไขโดยผู้อื่นแล้ว — …` (the order's
+  `updatedAt` moved); `/items/:productId` of a SKU the tab does not list → 404 `ข้อมูลนี้เปลี่ยนไปแล้ว — …`, an order
+  not (or no longer) in the proposal → 404 `ไม่พบใบสั่งผลิตนี้แล้ว — โหลดข้อมูลล่าสุดให้แล้ว`. Rule copy (422) is the
+  shared `PERR` (quantity `จำนวนผลิตต้องเป็นจำนวนเต็ม 1–1,000,000
   ชิ้น`, lead days `จำนวนวันต้องเป็นจำนวนเต็ม 0–90 วัน`, dates `เลือกวันที่` / `วันที่ต้องไม่เกินวันนี้` /
   `วันที่ผลิตเสร็จต้องไม่ก่อน …` / `วันที่ส่งต้องไม่ก่อนวันที่ผลิตเสร็จ (…)` / …). Logged as entity `PROPOSAL`,
-  actions `production.quantity|plan|confirm|produced|delivered|back|dates|cancel|skip|restore|keep` (Thai summaries
-  with SKUs, pieces and dates). Notices (type `PROPOSAL_STATUS`, link `/proposals/:id?tab=production`, never to the
-  actor): confirm → owner + members `ยืนยันเริ่มผลิต n SKU แล้ว · ต้องการสินค้า {neededOn}`; the last delivery → owner +
+  actions `production.quantity|plan|confirm|produced|delivered|back|dates|cancel|skip|restore|keep|order` (Thai
+  summaries with SKUs, pieces and dates; confirm ends `· ผลิตที่ {manufacturer}`, with a reference `· เอกสาร {ref}`,
+  then `· เริ่มผลิต {start} · ประมาณ {n} วัน · ของถึง {expected}`; `order` = `แก้ข้อมูลใบสั่งผลิตที่ n ({SKUs}): บริษัท A →
+  B, เอกสาร a → b, เริ่มผลิต a → b, ระยะเวลาผลิต a → b วัน, ผู้ติดต่อหลัก X → Y, ผู้ติดต่อร่วม +N / −M`, only the parts
+  that changed; `—` for a value the order did not have). Notices (type `PROPOSAL_STATUS`, link `/proposals/:id?tab=production`, never to the
+  actor): confirm → owner + members who are not the order's contacts `ยืนยันเริ่มผลิต n SKU แล้ว · ต้องการสินค้า
+  {neededOn}`, and the contacts `ยืนยันเริ่มผลิต n SKU · คุณเป็นผู้ติดต่อหลัก` / `… · คุณเป็นผู้ติดต่อร่วม` (body
+  `{code} {title} · {manufacturer}`); an order edit → people it newly makes the main contact / a co-contact
+  `แก้ข้อมูลใบสั่งผลิตที่ n · คุณเป็นผู้ติดต่อหลัก` / `… · คุณเป็นผู้ติดต่อร่วม`; the last delivery → owner +
   members `ส่งสินค้าเข้าคลัง/{ห้าง}ครบ n SKU แล้ว`; a presentation record / revert / edit of a pass or a proposal
   SKU / store edit that adds pending SKUs → owner `มี n SKU ผ่าน Buyer แล้ว — รอยืนยันเริ่มผลิต`, that newly flags
   confirmed SKUs → owner `n SKU ที่ยืนยันผลิตแล้วต้องตรวจสอบ`. Deadline alarms are not pushed (no scheduler): they
@@ -111,7 +174,10 @@ Validation and error messages are Thai and are shown to users as-is. The web cli
   n โปรเจกต์ — ปิดการใช้งานแทนได้`); a proposal with a confirmed SKU can't be deleted (409 `IN_USE`
   `มีสินค้าที่ยืนยันผลิตแล้ว ลบไม่ได้ — เปลี่ยนสถานะเป็น “ยกเลิก” แทน`; on a CANCELLED one the hint is
   `งานที่ยกเลิกแล้วจะเก็บประวัติการผลิตไว้`). DB: `production_plans`, `production_items`,
-  `production_events` (CHECKs keep every status's fields consistent).
+  `production_events` (CHECKs keep every status's fields consistent), `production_orders` (unique `(proposal_id,
+  seq)`, cascade with the proposal; `started_on` / `production_days` both or neither, days 1–365 — CHECKs),
+  `production_order_contacts` (co-contacts; the main contact is never one) and
+  `manufacturers`; `production_items.order_id` is set only on confirmed rows (CHECK).
 - **Overdue** (one rule for the badge, home, `/tasks/mine` due filters and the Monitor): a leaf task (no children),
   not done, `dueDate` before today (Asia/Bangkok), in an **IN_PROGRESS** proposal. DRAFT / ON_HOLD / COMPLETED
   proposals never count; CANCELLED ones are never listed.
@@ -162,6 +228,12 @@ Validation and error messages are Thai and are shown to users as-is. The web cli
 | PATCH | /departments/:id | `department.manage` | `{ name?, isActive? }` — a rename renames it on every user (FK cascade); inactive = kept by current users, not assignable | `Department` |
 | DELETE | /departments/:id | `department.manage` (409 `IN_USE` `ลบไม่ได้ เพราะมีผู้ใช้ N คนอยู่ในแผนกนี้ — ปิดการใช้งานแทนได้` while any user has it) | — | `true` |
 | PUT | /departments/order | `department.manage` | `{ ids: string[] }` (sortOrder = index + 1, one transaction) | `true` |
+| GET | /manufacturers | signed in | `?includeInactive=true` (any signed-in user: the confirm dialog's picker loads it to show an inactive current value and the "ถูกปิดใช้งาน" hint for a typed inactive name) | `Manufacturer[]` (sortOrder) — active only by default |
+| GET | /manufacturers/usage | `manufacturer.manage` | — | `Record<manufacturerId, proposalCount>` (every manufacturer, 0 when unused; a proposal counts once however many of its production orders name it) |
+| POST | /manufacturers | `manufacturer.manage` or `proposal.create` (the confirm dialog's inline add) | `ManufacturerInput` — `name` trimmed, inner spaces collapsed, 1–120 chars; `note` ≤ 500, `''` → null; duplicate ignoring case → 422 field `name` `มีบริษัทชื่อนี้อยู่แล้ว`, or for an inactive one `มีบริษัทชื่อนี้อยู่แล้วแต่ถูกปิดใช้งาน — ให้ผู้ดูแลเปิดใช้งานในหน้าบริษัทรับผลิต` | `Manufacturer` (added last) |
+| PATCH | /manufacturers/:id | `manufacturer.manage` | `{ name?, note?, isActive? }` — same name rules (itself excluded); inactive = kept by the orders that name it, not pickable; nothing changed → no write | `Manufacturer` |
+| DELETE | /manufacturers/:id | `manufacturer.manage` (409 `IN_USE` `ลบไม่ได้ เพราะมีใบสั่งผลิตใช้บริษัทนี้อยู่ — ปิดการใช้งานแทนได้` while any production order names it) | — | `true` |
+| PUT | /manufacturers/order | `manufacturer.manage` | `{ ids: string[] }` (sortOrder = index + 1, one transaction) | `true` |
 | GET | /stores | signed in | `?includeInactive=true` | `Store[]` (channel, sortOrder) |
 | GET | /stores/usage | signed in | — | `Record<storeId, proposalCount>` (a proposal counts once at each store it lists or keeps a presentation track of — what `DELETE /stores/:id` refuses on) |
 | POST | /stores | `store.manage` | `StoreInput` | `Store` |
@@ -192,7 +264,7 @@ Validation and error messages are Thai and are shown to users as-is. The web cli
 | POST | /proposals/:id/status | owner or `proposal.update.any` | `{ status }` | `Proposal` |
 | POST | /proposals/:id/target-date | owner or `proposal.update.any` | `{ targetDate, shiftTasks }` — `targetDate` must be the 15th (422) | `Proposal` |
 | POST | /proposals/:id/duplicate | `proposal.create` + can view | `{ storeIds, targetDate }` — a new proposal for those stores (any of the channel, the source's included); `targetDate` must be the 15th (422); tasks keep `responsible` and the details table (values too) | `Proposal` |
-| DELETE | /proposals/:id | `proposal.delete.any`, or owner of a DRAFT; 409 `IN_USE` while a SKU is still confirmed for production — IN_PRODUCTION / PRODUCED / DELIVERED (`productionDeleteBlock`: `มีสินค้าที่ยืนยันผลิตอยู่ n SKU ลบไม่ได้ — ยกเลิกการผลิตทุก SKU …`); SKUs whose production was cancelled don't block an Admin (their production rows and events cascade with the proposal), but anyone without `proposal.delete.any` gets 409 `IN_USE` `PRODUCTION_HISTORY_DELETE` (`โปรเจกต์นี้มีประวัติการผลิต — ลบได้เฉพาะ Admin …`) while any SKU was ever confirmed | — | `true` |
+| DELETE | /proposals/:id | `proposal.delete.any`, or owner of a DRAFT; 409 `IN_USE` while a SKU is still confirmed for production — IN_PRODUCTION / PRODUCED / DELIVERED (`productionDeleteBlock`: `มีสินค้าที่ยืนยันผลิตอยู่ n SKU ลบไม่ได้ — ยกเลิกการผลิตทุก SKU …`); SKUs whose production was cancelled don't block an Admin (their production rows, events and orders cascade with the proposal), but anyone without `proposal.delete.any` gets 409 `IN_USE` `PRODUCTION_HISTORY_DELETE` (`โปรเจกต์นี้มีประวัติการผลิต — ลบได้เฉพาะ Admin …`) while any SKU was ever confirmed | — | `true` |
 | GET | /proposals/:id/tasks | can view | — | `Task[]` (flat) |
 | GET | /proposals/:id/comment-counts | can view | — | `Record<taskId, count>` |
 | GET | /proposals/:id/report | can view | — | `ProposalReport` — extras for the PDF export page: `users` the tasks refer to (assignees, completed by, created by; deactivated included), every task `comments` (oldest first), `lastActivity` = latest TASK activity per task id (absent when a task was never changed after creation) |
@@ -216,13 +288,14 @@ Validation and error messages are Thai and are shown to users as-is. The web cli
 | GET | /proposals/:id/production | can view | — | `ProductionView` (see *Production*; one consistent snapshot) |
 | PUT | /proposals/:id/production/quantities | decide | `{ items: { productId, quantity: 1–1,000,000, before: number \| null }[] }` (1–200, unique) — confirmed SKUs only ("แก้จำนวนผลิต"; a PENDING SKU → 409 `สถานะของ {SKU} เปลี่ยนไปแล้ว …`, its quantity is sent with confirm); `before` = the saved quantity the client showed (409 when it moved); unlisted SKU → 409, CANCELLED → 409; unchanged values are skipped, nothing changed → no write. On a SKU that still passes it also acknowledges the passing stores | `ProductionView` |
 | PATCH | /proposals/:id/production/plan | team; `leadDays` changes need decide | `{ leadDays?: 0–90, note?: string \| null }` (≥ 1 key; note trimmed, ≤ 500, blank → null) — upserts `production_plans`; no change → no write | `ProductionView` |
-| POST | /proposals/:id/production/confirm | decide | `{ items: { productId, quantity, saved }[], neededOn? }` — exactly `pendingIds` (else 409), each with its quantity (1–1,000,000) and `saved` (409 when the saved quantity moved); `neededOn` ("วันที่ต้องการสินค้า") today … the launch date (422 `วันที่ต้องการสินค้าต้องไม่ก่อนวันนี้` / `วันที่ต้องการสินค้าต้องไม่เกินวันวางขาย (…)` / once the launch has passed `เลยวันวางขายแล้ว — วันที่ต้องการสินค้าเลือกได้แค่วันนี้`), default `defaultNeededOn` (the plan deadline clamped into that range); `startedOn` = the set's earliest pass. Rows → `IN_PRODUCTION`, `ackStoreIds` = their passing stores | `ProductionView` |
-| POST | /proposals/:id/production/advance | team | `{ productIds (1–200), from: 'IN_PRODUCTION' \| 'PRODUCED', to?: 'DELIVERED', date, deliveredOn? }` — one step for every listed SKU (each must be in `from`, else 409): IN_PRODUCTION → PRODUCED (`date` ≥ `startedOn`) or PRODUCED → DELIVERED (`date` ≥ `producedOn`); `from: 'IN_PRODUCTION', to: 'DELIVERED'` records both (`date` = produced, `deliveredOn` = delivered). Dates ≤ today; a per-SKU error is prefixed `{SKU}: ` when several SKUs are sent. Delivery freezes `dueOn` | `ProductionView` |
-| POST | /proposals/:id/production/items/:productId/back | decide | `{ from: 'IN_PRODUCTION' \| 'PRODUCED' \| 'DELIVERED' }` — one step back, clearing that step's fields; IN_PRODUCTION → PENDING clears the confirmation (the quantity is kept and prefilled at the next confirm; a SKU no longer in the proposal loses its row) | `ProductionView` |
+| POST | /proposals/:id/production/confirm | decide | `{ items: { productId, quantity, saved }[], neededOn?, order: { referenceNo, manufacturerId, mainContactId, coContactIds, startedOn, productionDays } }` — exactly `pendingIds` (else 409), each with its quantity (1–1,000,000) and `saved` (409 when the saved quantity moved); `neededOn` ("วันที่ต้องการสินค้า") today … the launch date (422 `วันที่ต้องการสินค้าต้องไม่ก่อนวันนี้` / `วันที่ต้องการสินค้าต้องไม่เกินวันวางขาย (…)` / once the launch has passed `เลยวันวางขายแล้ว — วันที่ต้องการสินค้าเลือกได้แค่วันนี้`), default `defaultNeededOn` (the plan deadline clamped into that range). `order` (required; missing → 422 `ข้อมูลไม่ถูกต้อง`; a missing / `null` / `''` `manufacturerId`, `mainContactId`, `startedOn` or `productionDays` → 422 `เลือกบริษัทรับผลิต` / `เลือกผู้ติดต่อหลัก` / `เลือกวันที่เริ่มผลิต` / `กรอกระยะเวลาผลิต` with `fields`; `startedOn` within `orderStartBounds(earliestPassedOn(pending rows), today, targetDate)`, `productionDays` 1–365) is checked before anything is written and creates the press's production order (see *Production*; `seq` never reuses a number). Rows → `IN_PRODUCTION`, `ackStoreIds` = their passing stores, `orderId` = the new order, `startedOn` = the order's `startedOn` (CONFIRM event `date` = it) | `ProductionView` |
+| POST | /proposals/:id/production/advance | team | `{ productIds (1–200), from: 'IN_PRODUCTION' \| 'PRODUCED', to?: 'DELIVERED', date, deliveredOn? }` — one step for every listed SKU (each must be in `from`, else 409): IN_PRODUCTION → PRODUCED (`date` ≥ `startedOn`, so not before a start that is still ahead) or PRODUCED → DELIVERED (`date` ≥ `producedOn`); `from: 'IN_PRODUCTION', to: 'DELIVERED'` records both (`date` = produced, `deliveredOn` = delivered). Dates ≤ today; a per-SKU error is prefixed `{SKU}: ` when several SKUs are sent. Delivery freezes `dueOn` | `ProductionView` |
+| POST | /proposals/:id/production/items/:productId/back | decide | `{ from: 'IN_PRODUCTION' \| 'PRODUCED' \| 'DELIVERED' }` — one step back, clearing that step's fields; IN_PRODUCTION → PENDING clears the confirmation and the order link (the quantity is kept and prefilled at the next confirm; a SKU no longer in the proposal loses its row; an order left without SKUs is deleted) | `ProductionView` |
 | PATCH | /proposals/:id/production/items/:productId/dates | team | `{ neededOn?, producedOn?, deliveredOn? }` (≥ 1 key) — `neededOn` on IN_PRODUCTION / PRODUCED needs decide (403 otherwise; same bounds as confirm; DELIVERED → 422 `ส่งแล้ว — แก้วันที่ต้องการสินค้าไม่ได้`), `producedOn` on PRODUCED / DELIVERED, `deliveredOn` on DELIVERED (else 422 `ยังไม่ได้บันทึกขั้นนี้ จึงแก้วันที่ไม่ได้`); `startedOn ≤ producedOn ≤ deliveredOn ≤ today`; `dueOn` unchanged | `ProductionView` |
 | POST | /proposals/:id/production/items/:productId/cancel | decide | `{ reason, from: 'PENDING' \| 'IN_PRODUCTION' \| 'PRODUCED' }` — reason required (trimmed, ≤ 500); from PENDING = "ไม่ผลิต" (skip; never in the confirm set); DELIVERED → 422 `ส่งแล้ว ยกเลิกไม่ได้ — ย้อนสถานะก่อน` | `ProductionView` |
 | POST | /proposals/:id/production/items/:productId/restore | decide | `{}` — CANCELLED only (else 409): a skip → PENDING, else PRODUCED when it was produced, else IN_PRODUCTION | `ProductionView` |
 | POST | /proposals/:id/production/items/:productId/keep | decide | `{ storeIds }` — the passing store ids the client showed; the row must need review and the ids must equal the current passing stores (else 409). Acknowledges them ("ผลิตต่อ" / "จำนวนเดิมใช้ได้") | `ProductionView` |
+| PATCH | /proposals/:id/production/orders/:orderId | decide (403 `แก้ข้อมูลใบสั่งผลิตได้เฉพาะเจ้าของโปรเจกต์หรือผู้จัดการ`) | `{ updatedAt, referenceNo?, manufacturerId?, mainContactId?, coContactIds?, startedOn?, productionDays? }` (≥ 1 field besides `updatedAt`, else 422 `ไม่มีข้อมูลที่จะแก้ไข`) — any SKU status, cancelled ones too. `updatedAt` = the order the client showed (409 `STALE` when it moved); an order of another proposal or already deleted → 404. The fields sent replace the current ones (an absent key keeps its value; `manufacturerId` / `mainContactId` sent as `null` or `''` → 422 `เลือกบริษัทรับผลิต` / `เลือกผู้ติดต่อหลัก`; a co-contact made the main contact leaves the co-contacts when `coContactIds` is not sent); `startedOn` / `productionDays` alone or together (`null` / `''` → 422 `เลือกวันที่เริ่มผลิต` / `กรอกระยะเวลาผลิต`), except on an order without a schedule yet (confirmed before schedules existed): sending one needs the other (the missing one → 422 as required). Only a changed value is checked: a new start within the bounds of the order's SKUs' passes and the launch, and not after the earliest produced / delivered date among them (422 `วันที่เริ่มผลิตต้องไม่หลังวันที่ผลิตเสร็จ (…)`); it becomes the `startedOn` of every SKU on the order. Same rules as confirm, except the current manufacturer may stay and each current contact may stay in the role they hold (a role change is checked like a new pick; refusals carry `fields` `mainContactId` / `coContactIds`). Nothing changed → no write; else one `ORDER` event per SKU of the order (ids and names, see *Production*), activity `production.order`, notices to people newly in a role | `ProductionView` |
 | GET | /activity | `activity.read.all`, or can view `proposalId` | `?proposalId=&limit=` | `ActivityWithActor[]` |
 | GET | /notifications | signed in | — | `AppNotification[]` (own, newest 50) |
 | POST | /notifications/read | signed in | `{ id: string \| "all" }` | `true` |

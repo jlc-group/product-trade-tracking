@@ -1,18 +1,19 @@
 // "รอผลิต" production step after a buyer pass: the persisted shapes, which SKUs are shown (derived from PASSED
-// presentation tracks), deadline math, the status transitions, validation, error copy and who may write. The API,
-// the home builder and the web run the same rules from here. No clock reads — `today` always comes in as an argument.
+// presentation tracks), deadline math, the status transitions, the production orders ("ใบสั่งผลิต"), validation, error
+// copy and who may write. The API, the home builder and the web run the same rules from here. No clock reads — `today`
+// always comes in as an argument.
 import { formatThaiDate } from './labels.js'
 import { canEditProposal, canManageTasks } from './permissions.js'
 import { acceptedProductIdsOf, NOTE_MAX, type DateText, type StoreSnapshot, type TrackView } from './presentation.js'
 import { addDays, diffDays } from './task-tree.js'
-import type { ISODate, ISODateTime, Product, Proposal, User } from './types.js'
+import type { ISODate, ISODateTime, Manufacturer, Product, Proposal, User } from './types.js'
 
 // ---------- persisted shapes ----------
 
 export type ProductionStatus = 'PENDING' | 'IN_PRODUCTION' | 'PRODUCED' | 'DELIVERED' | 'CANCELLED'
 /** Why a confirmed SKU needs the owner / a manager to look again. */
 export type ProductionFlag = 'NOT_PASSED' | 'NOT_IN_PROPOSAL' | 'STORES_CHANGED'
-export type ProductionEventKind = 'QUANTITY' | 'PLAN' | 'CONFIRM' | 'ADVANCE' | 'BACK' | 'DATES' | 'CANCEL' | 'RESTORE' | 'KEEP'
+export type ProductionEventKind = 'QUANTITY' | 'PLAN' | 'CONFIRM' | 'ADVANCE' | 'BACK' | 'DATES' | 'CANCEL' | 'RESTORE' | 'KEEP' | 'ORDER'
 /** NONE = nothing passed and no item; CANCELLED = only cancelled / skipped rows. */
 export type ProductionState = 'NONE' | 'PENDING' | 'ACTIVE' | 'DONE' | 'CANCELLED'
 
@@ -35,10 +36,15 @@ export interface ProductionItem {
   /** The real press of "ยืนยันเริ่มผลิต"; null = never confirmed. */
   confirmedAt: ISODateTime | null
   confirmedById: string | null
-  /** Production start (business date): the earliest pass of the confirmed set (earlier rows: a picked start). */
+  /**
+   * Production start (business date): its order's "วันที่ดำเนินการ" (ProductionOrder.startedOn; may be after today —
+   * futureStartOf); rows confirmed before that existed: the earliest pass of the confirmed set (older: a picked start).
+   */
   startedOn: ISODate | null
   /** "วันที่ต้องการสินค้า" picked at confirm: this SKU's delivery due date; null = the plan deadline (older rows). */
   neededOn: ISODate | null
+  /** The "ใบสั่งผลิต" of the press that confirmed it (ProductionView.orders); null = never confirmed, or confirmed before orders existed. */
+  orderId: string | null
   producedOn: ISODate | null
   producedById: string | null
   deliveredOn: ISODate | null
@@ -173,12 +179,76 @@ export interface ProductionEvent {
   leadDaysBefore: number | null
   leadDaysAfter: number | null
   reason: string | null
-  /** DATES: { neededOn? | producedOn? | deliveredOn? (startedOn? in older rows): [before, after] }; CONFIRM: { neededOn }; PLAN: { noteChanged }; KEEP: { storeIds }; else {}. */
+  /**
+   * DATES: { neededOn? | producedOn? | deliveredOn? (startedOn? in older rows): [before, after] };
+   * CONFIRM (date = the production start): { neededOn, orderId?, orderSeq?, manufacturerName?, referenceNo?, startedOn?,
+   * productionDays?, expectedOn?, mainContactId?, mainContactName?, coContactIds?, coContactNames? } (the order fields from
+   * when orders exist, the schedule from when it exists, the contacts with their names as of the confirm from 2026-10-08);
+   * ORDER (an order edit, one event per item of it, fromStatus = toStatus): { orderId, orderSeq, referenceNo?: [before | null,
+   * after | null], manufacturer?: [beforeName, afterName], startedOn?: [before | null, after], productionDays?: [before |
+   * null, after], mainContactId?: [before, after], mainContactName?: [before, after], coContacts?: { added: string[],
+   * removed: string[] }, coContactNames?: { added: string[], removed: string[] } } — the names (nickname || name, as of
+   * the edit; same order as the ids) are absent in events written before they were stored; a null schedule "before" is
+   * an order confirmed before schedules existed; PLAN: { noteChanged }; KEEP: { storeIds }; else {}. An orderSeq here is
+   * never given to a later order.
+   */
   detail: Record<string, unknown>
 }
 
 export interface ProductionRow extends ProductionRowCore<ProductionItem> {
   product: Pick<Product, 'id' | 'sku' | 'name' | 'brand' | 'size' | 'isActive'>
+}
+
+/** Who an order names (embedded so deactivated people still show). */
+export type ProductionPerson = Pick<User, 'id' | 'name' | 'nickname' | 'avatarColor' | 'isActive' | 'department' | 'position'>
+
+/** "ใบสั่งผลิต": one press of "ยืนยันเริ่มผลิต" and the SKUs it confirmed; the owner / a manager may edit it later. */
+export interface ProductionOrder {
+  id: string
+  /** 1, 2, … per proposal: "ใบสั่งผลิตที่ n"; never reused, even after the order holding a number was deleted. */
+  seq: number
+  /** "รหัสเอกสารอ้างอิง" (e.g. a PO / PR number); null = none. */
+  referenceNo: string | null
+  /** "บริษัทรับผลิต" (embedded so a deactivated one still shows). */
+  manufacturer: Pick<Manufacturer, 'id' | 'name' | 'isActive'>
+  /** "ผู้ติดต่อหลัก". */
+  mainContact: ProductionPerson
+  /** "ผู้ติดต่อร่วม": name order (Thai locale), never containing the main contact. */
+  coContacts: ProductionPerson[]
+  confirmedAt: ISODateTime
+  confirmedById: string
+  /** Who pressed confirm (embedded like the contacts, so a deactivated / non-team confirmer still shows). */
+  confirmedBy: ProductionPerson
+  /**
+   * "วันที่ดำเนินการ" = the production start of every SKU on the order (their item.startedOn); may be after today.
+   * startedOn / productionDays / expectedOn are all null on an order confirmed before schedules existed.
+   */
+  startedOn: ISODate | null
+  /** "ระยะเวลาผลิตทั้งหมด (ประมาณ)": 1–PRODUCTION_DAYS_MAX days. */
+  productionDays: number | null
+  /** "ของถึงประมาณ" = orderExpectedOn(startedOn, productionDays), filled by the server (never stored). */
+  expectedOn: ISODate | null
+  /** The items carrying this order (any status, cancelled included), proposal row order. */
+  productIds: string[]
+  /** Stale guard for PATCH …/orders/:orderId. */
+  updatedAt: ISODateTime
+}
+
+/** What a confirm press and an order edit carry. */
+export interface ProductionOrderFields {
+  /** Cleaned with cleanReferenceNo (blank → null). */
+  referenceNo: string | null
+  manufacturerId: string
+  mainContactId: string
+  /** Not containing mainContactId; ≤ ORDER_CO_CONTACTS_MAX. */
+  coContactIds: string[]
+  /**
+   * "วันที่ดำเนินการ" (production start): within orderStartBounds() of the order's SKUs; on an edit also not after their
+   * earliest produced date (orderStartAfterProducedError). Becomes the startedOn of every SKU on the order.
+   */
+  startedOn: ISODate
+  /** "ระยะเวลาผลิตทั้งหมด (ประมาณ)": integer 1–PRODUCTION_DAYS_MAX days. */
+  productionDays: number
 }
 
 /** GET /proposals/:id/production and every production write. */
@@ -196,6 +266,8 @@ export interface ProductionView {
   pendingIds: string[]
   /** Newest first, at most PRODUCTION_EVENTS_MAX. */
   events: ProductionEvent[]
+  /** The proposal's production orders, seq ascending. */
+  orders: ProductionOrder[]
 }
 
 // ---------- request bodies (every route answers the whole ProductionView) ----------
@@ -216,6 +288,20 @@ export interface ProductionConfirmInput {
   items: { productId: string; quantity: number; saved: number | null }[]
   /** "วันที่ต้องการสินค้า" (the delivery due date of these SKUs): today … latestNeededOn(); default defaultNeededOn(). */
   neededOn?: ISODate
+  /**
+   * The "ใบสั่งผลิต" this press creates (orderFieldErrors; the manufacturer must be active, contacts active team members;
+   * startedOn within orderStartBounds(earliestPassedOn(pending rows), today, targetDate), productionDays required).
+   */
+  order: ProductionOrderFields
+}
+
+/**
+ * PATCH …/production/orders/:orderId (≥ 1 field besides updatedAt); `updatedAt` = the order the client showed (409 when
+ * it moved). startedOn / productionDays may be sent alone or together, except on an order without a schedule yet
+ * (confirmed before schedules existed): then both or neither.
+ */
+export interface ProductionOrderEditInput extends Partial<ProductionOrderFields> {
+  updatedAt: ISODateTime
 }
 
 /** POST …/production/advance: one step, or IN_PRODUCTION → PRODUCED → DELIVERED with `to` + `deliveredOn`. */
@@ -262,6 +348,14 @@ export const PRODUCTION_EVENTS_MAX = 200
 export const PRODUCTION_LEAD_QUICK = [7, 14, 21, 30]
 /** A COMPLETED project past launch with passed but never-confirmed SKUs stays on home this many days after launch. */
 export const PRODUCTION_HOME_AFTER_LAUNCH_DAYS = 60
+/** "รหัสเอกสารอ้างอิง" of a production order, after cleanReferenceNo. */
+export const PRODUCTION_REF_MAX = 100
+export const MANUFACTURER_NAME_MAX = 120
+export const MANUFACTURER_NOTE_MAX = 500
+/** "ผู้ติดต่อร่วม" per production order. */
+export const ORDER_CO_CONTACTS_MAX = 20
+/** "ระยะเวลาผลิตทั้งหมด" of a production order, in days (1 … this). */
+export const PRODUCTION_DAYS_MAX = 365
 
 export const PRODUCTION_STATUSES: ProductionStatus[] = ['PENDING', 'IN_PRODUCTION', 'PRODUCED', 'DELIVERED', 'CANCELLED']
 export const CONFIRMED_STATUSES: ProductionStatus[] = ['IN_PRODUCTION', 'PRODUCED', 'DELIVERED']
@@ -342,6 +436,9 @@ export function productionFlagLabel(flag: ProductionFlag, word = 'ห้าง')
 export function formatQty(n: number): string {
   return String(Math.trunc(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
 }
+
+/** "ใบสั่งผลิตที่ 2" (API log copy and the web). */
+export const orderLabel = (o: Pick<ProductionOrder, 'seq'>) => `ใบสั่งผลิตที่ ${o.seq}`
 
 /** "SKU-1, SKU-2, SKU-3 และอีก 2 SKU". */
 export function skuListLabel(skus: readonly string[], max = 3): string {
@@ -553,6 +650,24 @@ export function productionErrors(date: DateText) {
     cancelDelivered: 'ส่งแล้ว ยกเลิกไม่ได้ — ย้อนสถานะก่อน',
     tooLong: (max: number) => `ยาวเกิน ${max} ตัวอักษร`,
     gone: 'ข้อมูลนี้เปลี่ยนไปแล้ว — โหลดข้อมูลล่าสุดให้แล้ว ลองอีกครั้ง',
+    refTooLong: `รหัสเอกสารอ้างอิงยาวเกิน ${PRODUCTION_REF_MAX} ตัวอักษร`,
+    manufacturerRequired: 'เลือกบริษัทรับผลิต',
+    manufacturerGone: 'ไม่พบบริษัทรับผลิตที่เลือก',
+    manufacturerInactive: (name: string) => `${name} ถูกปิดการใช้งานแล้ว — เลือกบริษัทอื่น`,
+    mainContactRequired: 'เลือกผู้ติดต่อหลัก',
+    contactDuplicate: 'ผู้ติดต่อหลักอยู่ในรายชื่อผู้ติดต่อร่วมด้วย — เลือกคนละคน',
+    coContactsMax: `เลือกผู้ติดต่อร่วมได้ไม่เกิน ${ORDER_CO_CONTACTS_MAX} คน`,
+    contactNotTeam: 'เลือกผู้ติดต่อได้เฉพาะทีมโปรเจกต์ ผู้รับผิดชอบงาน หรือผู้จัดการ — เพิ่มสมาชิกได้ที่หัวโปรเจกต์',
+    contactInactive: (name: string) => `${name} ถูกปิดการใช้งานแล้ว — เลือกคนอื่น`,
+    orderOnly: 'แก้ข้อมูลใบสั่งผลิตได้เฉพาะเจ้าของโปรเจกต์หรือผู้จัดการ',
+    orderChanged: 'ข้อมูลใบสั่งผลิตถูกแก้ไขโดยผู้อื่นแล้ว — โหลดข้อมูลล่าสุดให้แล้ว ตรวจสอบแล้วลองอีกครั้ง',
+    orderGone: 'ไม่พบใบสั่งผลิตนี้แล้ว — โหลดข้อมูลล่าสุดให้แล้ว',
+    startRequired: 'เลือกวันที่เริ่มผลิต',
+    startBeforePass: (d: ISODate) => `วันที่เริ่มผลิตต้องไม่ก่อนวันที่ผ่าน Buyer (${date(d)})`,
+    startTooLate: (d: ISODate) => `วันที่เริ่มผลิตต้องไม่เกิน ${date(d)}`,
+    startAfterProduced: (d: ISODate) => `วันที่เริ่มผลิตต้องไม่หลังวันที่ผลิตเสร็จ (${date(d)})`,
+    daysRequired: 'กรอกระยะเวลาผลิต',
+    days: `ระยะเวลาผลิตต้องเป็นจำนวนเต็ม 1–${PRODUCTION_DAYS_MAX} วัน`,
   }
 }
 
@@ -673,6 +788,153 @@ export function cancelReasonError(v: unknown, err: ProductionErrors = PERR, skip
   return v.trim().length > NOTE_MAX ? err.tooLong(NOTE_MAX) : null
 }
 
+/** "รหัสเอกสารอ้างอิง" as stored: trimmed, runs of whitespace → one space; blank → null. */
+export function cleanReferenceNo(raw: string | null | undefined): string | null {
+  const v = (raw ?? '').trim().replace(/\s+/g, ' ')
+  return v === '' ? null : v
+}
+
+/** Optional; ≤ PRODUCTION_REF_MAX once cleaned. */
+export function referenceNoError(raw: string | null | undefined, err: ProductionErrors = PERR): string | null {
+  return (cleanReferenceNo(raw)?.length ?? 0) > PRODUCTION_REF_MAX ? err.refTooLong : null
+}
+
+// ---------- production order schedule ("วันที่ดำเนินการ", "ระยะเวลาผลิต", "ของถึงประมาณ") ----------
+
+/** The range a production order's start ("วันที่ดำเนินการ") may take. */
+export interface OrderStartBounds {
+  min: ISODate
+  max: ISODate
+}
+
+/**
+ * min = the earliest buyer pass of the order's SKUs (today when none passes), max = latestNeededOn() (the launch date,
+ * or today once the launch has passed). The confirm dialog starts at defaultOrderStart().
+ */
+export function orderStartBounds(earliestPass: ISODate | null, today: ISODate, targetDate: ISODate): OrderStartBounds {
+  const max = latestNeededOn(today, targetDate)
+  const min = earliestPass ?? today
+  return { min: min > max ? max : min, max }
+}
+
+/**
+ * Lower bound of an order edit's start: the earliest buyer pass of its SKUs; when none passes any more (a pass was
+ * reverted, a SKU left the proposal) the earliest start already recorded on them, so a past start can still be corrected.
+ */
+export function orderEditStartFloor(earliestPass: ISODate | null, items: readonly Pick<ProductionItem, 'startedOn'>[]): ISODate | null {
+  if (earliestPass) return earliestPass
+  return items.reduce<ISODate | null>((min, i) => (i.startedOn && (!min || i.startedOn < min) ? i.startedOn : min), null)
+}
+
+/** The confirm dialog's starting "วันที่ดำเนินการ": today, kept within the bounds. */
+export const defaultOrderStart = (bounds: OrderStartBounds, today: ISODate): ISODate => (today < bounds.min ? bounds.min : today > bounds.max ? bounds.max : today)
+
+/** "ของถึงประมาณ" = start + days; null while either is missing or invalid (a dialog's live line, a legacy order). */
+export function orderExpectedOn(startedOn: ISODate | null | undefined, days: number | null | undefined): ISODate | null {
+  return isRealDate(startedOn) && productionDaysError(days) === null ? addDays(startedOn, days as number) : null
+}
+
+/** The earliest produced / delivered date of an order's items: a start may not follow it (null = none recorded). */
+export function earliestProducedOn(items: readonly Pick<ProductionItem, 'producedOn' | 'deliveredOn'>[]): ISODate | null {
+  let min: ISODate | null = null
+  for (const i of items) for (const d of [i.producedOn, i.deliveredOn]) if (d && (!min || d < min)) min = d
+  return min
+}
+
+/** How late an expected arrival is: after the launch ("หลังวันวางขาย", red) wins over after the needed date (yellow). */
+export interface ArrivalLate {
+  kind: 'LAUNCH' | 'NEEDED'
+  /** Days after that date (≥ 1). */
+  days: number
+}
+
+/** null = in time, or nothing to compare (no expected date). `neededOn` = the SKU set's "วันที่ต้องการสินค้า" (row.dueOn). */
+export function arrivalLate(expectedOn: ISODate | null, neededOn: ISODate | null, targetDate: ISODate): ArrivalLate | null {
+  if (!expectedOn) return null
+  if (expectedOn > targetDate) return { kind: 'LAUNCH', days: diffDays(targetDate, expectedOn) }
+  if (neededOn && expectedOn > neededOn) return { kind: 'NEEDED', days: diffDays(neededOn, expectedOn) }
+  return null
+}
+
+/** A confirmed SKU whose production start is still ahead: that start ("เริ่มผลิต {date}"; no "ผลิตเสร็จ" until then), else null. */
+export function futureStartOf(item: Pick<ProductionItem, 'status' | 'startedOn'> | null | undefined, today: ISODate): ISODate | null {
+  return item?.status === 'IN_PRODUCTION' && item.startedOn && item.startedOn > today ? item.startedOn : null
+}
+
+/** "วันที่ดำเนินการ": required, a real date within the bounds (null bounds = only required / real). */
+export function orderStartError(startedOn: string | null | undefined, bounds: OrderStartBounds | null, err: ProductionErrors = PERR): string | null {
+  if (typeof startedOn !== 'string' || startedOn === '') return err.startRequired
+  if (!isRealDate(startedOn)) return err.dateInvalid
+  if (bounds && startedOn < bounds.min) return err.startBeforePass(bounds.min)
+  if (bounds && startedOn > bounds.max) return err.startTooLate(bounds.max)
+  return null
+}
+
+/** An edited start may not follow a produced / delivered date already recorded on the order's items. */
+export function orderStartAfterProducedError(
+  startedOn: ISODate,
+  items: readonly Pick<ProductionItem, 'producedOn' | 'deliveredOn'>[],
+  err: ProductionErrors = PERR,
+): string | null {
+  const floor = earliestProducedOn(items)
+  return floor && startedOn > floor ? err.startAfterProduced(floor) : null
+}
+
+/** "ระยะเวลาผลิตทั้งหมด": required, integer 1 … PRODUCTION_DAYS_MAX. */
+export function productionDaysError(n: unknown, err: ProductionErrors = PERR): string | null {
+  if (n === null || n === undefined || n === '') return err.daysRequired
+  return typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= PRODUCTION_DAYS_MAX ? null : err.days
+}
+
+/** The keys of orderFieldErrors, in dialog order. */
+export type OrderField = 'manufacturerId' | 'referenceNo' | 'startedOn' | 'productionDays' | 'mainContactId' | 'coContactIds'
+
+/** What orderFieldErrors checks a start against: its bounds, and on an edit the order's items (the start can't follow a produced date). */
+export interface OrderStartRules {
+  bounds: OrderStartBounds
+  items?: readonly Pick<ProductionItem, 'producedOn' | 'deliveredOn'>[]
+}
+
+/**
+ * The order fields of a confirm / an order edit, keyed in dialog order (the first is the one to report or focus):
+ * manufacturer and main contact required, ≤ PRODUCTION_REF_MAX reference, the start (orderStartError with
+ * `start.bounds`, then orderStartAfterProducedError with `start.items`) and the days (productionDaysError) — each
+ * checked only when its key is not undefined (a confirm sends both; an edit only what changed, null = cleared → required),
+ * the main contact not also a co-contact, ≤ ORDER_CO_CONTACTS_MAX co-contacts. Whether the ids exist, are active and on
+ * the team is the API's check.
+ */
+export function orderFieldErrors(
+  f: {
+    manufacturerId: string | null
+    mainContactId: string | null
+    coContactIds: string[]
+    referenceNo: string | null
+    startedOn?: string | null
+    productionDays?: number | null
+  },
+  err: ProductionErrors = PERR,
+  start?: OrderStartRules,
+): Partial<Record<OrderField, string>> {
+  const out: Partial<Record<OrderField, string>> = {}
+  if (!f.manufacturerId) out.manufacturerId = err.manufacturerRequired
+  const ref = referenceNoError(f.referenceNo, err)
+  if (ref) out.referenceNo = ref
+  if (f.startedOn !== undefined) {
+    const e =
+      orderStartError(f.startedOn, start?.bounds ?? null, err) ??
+      (start?.items ? orderStartAfterProducedError(f.startedOn as ISODate, start.items, err) : null)
+    if (e) out.startedOn = e
+  }
+  if (f.productionDays !== undefined) {
+    const e = productionDaysError(f.productionDays, err)
+    if (e) out.productionDays = e
+  }
+  if (!f.mainContactId) out.mainContactId = err.mainContactRequired
+  if (f.mainContactId && f.coContactIds.includes(f.mainContactId)) out.coContactIds = err.contactDuplicate
+  else if (new Set(f.coContactIds).size > ORDER_CO_CONTACTS_MAX) out.coContactIds = err.coContactsMax
+  return out
+}
+
 // ---------- permissions ----------
 
 type Actor = Pick<User, 'id' | 'role'>
@@ -686,7 +948,7 @@ export interface ProductionPerms {
 /** Owner, members, MANAGER, ADMIN: the note, advance, edit dates. */
 export const canWorkProduction = (me: Actor | null | undefined, p: ProposalLike) => p.status !== 'CANCELLED' && canManageTasks(me, p)
 
-/** Owner, MANAGER, ADMIN: confirm (with the quantities), lead days, confirmed quantities, back, cancel / skip, restore, keep. */
+/** Owner, MANAGER, ADMIN: confirm (with the quantities and the order), lead days, confirmed quantities, back, cancel / skip, restore, keep, order edits. */
 export const canDecideProduction = (me: Actor | null | undefined, p: ProposalLike) => p.status !== 'CANCELLED' && canEditProposal(me, p)
 
 export function productionPerms(me: Actor | null | undefined, p: ProposalLike): ProductionPerms {
@@ -700,8 +962,10 @@ export function canEditQuantity(status: ProductionStatus, perms: ProductionPerms
 
 export interface ProductionRowActions {
   editQuantity: boolean
-  /** The forward step (team): IN_PRODUCTION → PRODUCED, PRODUCED → DELIVERED. */
+  /** The forward step (team): IN_PRODUCTION → PRODUCED (once its start is not after today), PRODUCED → DELIVERED. */
   advanceTo: ProductionStatus | null
+  /** futureStartOf(): an IN_PRODUCTION SKU whose start is after today ("เริ่มผลิต {date}", no "ผลิตเสร็จ" yet), any viewer. */
+  startsOn: ISODate | null
   /** The step back (owner / manager). */
   backTo: ProductionStatus | null
   /** Any date this viewer may edit: produced / delivered (team, once recorded) or the need date (editNeededOn). */
@@ -715,16 +979,25 @@ export interface ProductionRowActions {
   restoreTo: ProductionStatus | null
   /** needsReview: "ผลิตต่อ" / "ส่งต่อตามแผน" / "รับทราบ" / "จำนวนเดิมใช้ได้". */
   keep: boolean
+  /** "แก้ข้อมูลใบสั่งผลิต…" (owner / manager) of a SKU that carries an order, any status — fixing a document number is always allowed. */
+  editOrder: boolean
 }
 
-/** What a viewer may do with one row (menus, buttons; the API checks the same). */
-export function productionRowActions(row: Pick<ProductionRowCore, 'status' | 'item' | 'needsReview' | 'passed'>, perms: ProductionPerms): ProductionRowActions {
+/** What a viewer may do with one row on `today` (menus, buttons; the API checks the same). */
+export function productionRowActions(
+  row: Pick<ProductionRowCore, 'status' | 'item' | 'needsReview' | 'passed'>,
+  perms: ProductionPerms,
+  today: ISODate,
+): ProductionRowActions {
   const { status } = row
   const { canWork, canDecide } = perms
   const editNeededOn = canDecide && (status === 'IN_PRODUCTION' || status === 'PRODUCED')
+  const startsOn = futureStartOf(row.item, today)
   return {
     editQuantity: canEditQuantity(status, perms),
-    advanceTo: canWork ? (NEXT_PRODUCTION[status] ?? null) : null,
+    // Not produced before it started: the advance date (≤ today) could not be ≥ the start anyway.
+    advanceTo: canWork && !startsOn ? (NEXT_PRODUCTION[status] ?? null) : null,
+    startsOn,
     backTo: canDecide ? (PREV_PRODUCTION[status] ?? null) : null,
     editDates: (canWork && (status === 'PRODUCED' || status === 'DELIVERED')) || editNeededOn,
     editNeededOn,
@@ -732,5 +1005,6 @@ export function productionRowActions(row: Pick<ProductionRowCore, 'status' | 'it
     skip: canDecide && status === 'PENDING' && row.passed,
     restoreTo: canDecide && status === 'CANCELLED' && row.item ? restoreTarget(row.item) : null,
     keep: canDecide && row.needsReview,
+    editOrder: canDecide && row.item?.orderId != null,
   }
 }

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { MoreToggle } from '@/features/home/panel'
 import { cn } from '@/lib/utils'
+import { producibleRows } from './model'
 import { COLS, ProductionRowView, ROW } from './production-row'
 import { StatusChip } from './status-chip'
 import type { ProductionModel, ProductionTabAction } from './types'
@@ -19,6 +20,8 @@ export function ProductionTable({ model, onAction }: { model: ProductionModel; o
   const cancelled = model.cancelledRows
   const skippedAll = cancelled.every((r) => r.skipped)
   const skippedNone = cancelled.every((r) => !r.skipped)
+  // Not the SKUs whose production start is still ahead (they show "เริ่มผลิต {date}" instead).
+  const producible = producibleRows(model.rows, model.today).length
 
   return (
     <section aria-labelledby="production-table-title" className="@container overflow-clip rounded-xl border bg-card">
@@ -29,11 +32,11 @@ export function ProductionTable({ model, onAction }: { model: ProductionModel; o
         {COUNTED.filter((st) => counts[st] > 0).map((st) => (
           <StatusChip key={st} status={st} word={word} size="sm" count={counts[st]} />
         ))}
-        {model.canWork && (s.inProduction > 0 || s.produced > 0) && (
+        {model.canWork && (producible > 0 || s.produced > 0) && (
           <div className="flex w-full flex-wrap gap-2 sm:ml-auto sm:w-auto">
-            {s.inProduction > 0 && (
+            {producible > 0 && (
               <Button size="sm" variant="outline" className="flex-1 sm:flex-none" onClick={() => onAction({ kind: 'advance', to: 'PRODUCED' })}>
-                <PackageCheckIcon /> บันทึกผลิตเสร็จ ({s.inProduction})
+                <PackageCheckIcon /> บันทึกผลิตเสร็จ ({producible})
               </Button>
             )}
             {s.produced > 0 && (

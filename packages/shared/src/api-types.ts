@@ -400,6 +400,12 @@ export interface DepartmentInput {
   name: string
 }
 
+/** POST /manufacturers (also the confirm dialog's inline add); PATCH takes Partial<ManufacturerInput> & { isActive?: boolean }. */
+export interface ManufacturerInput {
+  name: string
+  note?: string | null
+}
+
 export type StoreInput = Pick<Store, 'name' | 'shortName' | 'channel' | 'color'> & { description?: string | null }
 export type ShelfTypeInput = Pick<ShelfType, 'name' | 'channel' | 'color'> & { description?: string | null }
 export type ProductInput = Pick<Product, 'sku' | 'name' | 'brand' | 'category'> & { barcode?: string | null; size?: string | null }

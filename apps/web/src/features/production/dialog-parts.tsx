@@ -27,13 +27,13 @@ export function ProdDialogActions({ label, pending, disabled, destructive }: { l
   )
 }
 
-/** Shown instead of a form when its SKU moved on before the dialog opened. */
-export function GoneContent() {
+/** Shown instead of a form when its SKU (or order) moved on before the dialog opened. */
+export function GoneContent({ description = 'สถานะของ SKU นี้เปลี่ยนไปแล้ว — ปิดหน้าต่างนี้แล้วเลือกใหม่จากตาราง' }: { description?: string }) {
   return (
     <>
       <DialogHeader>
         <DialogTitle>ข้อมูลเปลี่ยนไปแล้ว</DialogTitle>
-        <DialogDescription>สถานะของ SKU นี้เปลี่ยนไปแล้ว — ปิดหน้าต่างนี้แล้วเลือกใหม่จากตาราง</DialogDescription>
+        <DialogDescription>{description}</DialogDescription>
       </DialogHeader>
       <DialogFooter>
         <DialogClose asChild>

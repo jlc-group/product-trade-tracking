@@ -9,6 +9,7 @@ import {
   confirmSchema,
   datesSchema,
   keepSchema,
+  orderEditSchema,
   planSchema,
   quantitiesSchema,
   type AdvanceBody,
@@ -17,6 +18,7 @@ import {
   type ConfirmBody,
   type DatesBody,
   type KeepBody,
+  type OrderEditBody,
   type PlanBody,
   type QuantitiesBody,
 } from './production.schemas.js'
@@ -101,5 +103,15 @@ export class ProductionController {
     @Body(new ZodPipe(keepSchema)) body: KeepBody,
   ): Promise<ProductionView> {
     return this.production.keep(user, id, productId, body)
+  }
+
+  @Patch('orders/:orderId')
+  editOrder(
+    @CurrentUser() user: User,
+    @Param('id', UuidPipe) id: string,
+    @Param('orderId', UuidPipe) orderId: string,
+    @Body(new ZodPipe(orderEditSchema)) body: OrderEditBody,
+  ): Promise<ProductionView> {
+    return this.production.editOrder(user, id, orderId, body)
   }
 }

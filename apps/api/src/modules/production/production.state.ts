@@ -3,6 +3,7 @@
 // the owner the production notices their writes cause.
 import {
   deriveProduction,
+  orderExpectedOn,
   PRODUCTION_EVENTS_MAX,
   PRODUCTION_LEAD_DAYS_DEFAULT,
   productionDiff,
@@ -13,6 +14,8 @@ import {
   type ProductionEvent,
   type ProductionItem,
   type ProductionItemCore,
+  type ProductionOrder,
+  type ProductionPerson,
   type ProductionPlan,
   type ProductionRow,
   type ProductionView,
@@ -33,6 +36,18 @@ type PlanRow = Prisma.ProductionPlanGetPayload<object>
 export const productSelect = { id: true, sku: true, name: true, brand: true, size: true, isActive: true } satisfies Prisma.ProductSelect
 type ProductRow = Prisma.ProductGetPayload<{ select: typeof productSelect }>
 
+const personSelect = { id: true, name: true, nickname: true, avatarColor: true, isActive: true, department: true, position: true } satisfies Prisma.UserSelect
+type PersonRow = Prisma.UserGetPayload<{ select: typeof personSelect }>
+
+/** What toProductionOrder needs (the view, and the order edit's "before"). */
+export const orderInclude = {
+  manufacturer: { select: { id: true, name: true, isActive: true } },
+  mainContact: { select: personSelect },
+  contacts: { select: { user: { select: personSelect } } },
+  confirmedBy: { select: personSelect },
+} satisfies Prisma.ProductionOrderInclude
+export type OrderRow = Prisma.ProductionOrderGetPayload<{ include: typeof orderInclude }>
+
 /** Every route of the tab and its notices link here. */
 export const productionLink = (proposalId: string) => `/proposals/${proposalId}?tab=production`
 
@@ -46,6 +61,7 @@ export function toProductionItem(row: ItemRow): ProductionItem {
     confirmedById: row.confirmedById,
     startedOn: toDateOnly(row.startedOn),
     neededOn: toDateOnly(row.neededOn),
+    orderId: row.orderId,
     producedOn: toDateOnly(row.producedOn),
     producedById: row.producedById,
     deliveredOn: toDateOnly(row.deliveredOn),
@@ -102,6 +118,37 @@ function toProductionEvent(row: EventRow, productOf: Map<string, string>): Produ
   }
 }
 
+const toPerson = (u: PersonRow): ProductionPerson => ({
+  id: u.id,
+  name: u.name,
+  nickname: u.nickname,
+  avatarColor: u.avatarColor,
+  isActive: u.isActive,
+  department: u.department,
+  position: u.position,
+})
+
+function toProductionOrder(row: OrderRow, productIds: string[]): ProductionOrder {
+  const startedOn = toDateOnly(row.startedOn)
+  return {
+    id: row.id,
+    seq: row.seq,
+    referenceNo: row.referenceNo,
+    manufacturer: row.manufacturer,
+    mainContact: toPerson(row.mainContact),
+    coContacts: row.contacts.map((c) => toPerson(c.user)).sort((a, b) => a.name.localeCompare(b.name, 'th')),
+    confirmedAt: iso(row.confirmedAt),
+    confirmedById: row.confirmedById,
+    confirmedBy: toPerson(row.confirmedBy),
+    startedOn,
+    productionDays: row.productionDays,
+    // Never stored: start + days (null on an order confirmed before schedules existed).
+    expectedOn: orderExpectedOn(startedOn, row.productionDays),
+    productIds,
+    updatedAt: iso(row.updatedAt),
+  }
+}
+
 export interface ProductionState {
   derived: ProductionDerived
   /** Every production_items row of the proposal (proposal SKUs and removed ones), by SKU. */
@@ -137,10 +184,18 @@ export async function loadProductionDerived(db: Db, proposal: Proposal, today: I
   return { derived, items, plan, stores, products, skuOf: (id) => products.get(id)?.sku ?? 'สินค้านี้' }
 }
 
-/** + the log: the ProductionView every production route answers. */
+/** The items carrying an order (any status): proposal row order, then any the tab does not list. */
+export function itemsOfOrder(state: ProductionState, orderId: string): ProductionItem[] {
+  const rank = new Map(state.derived.rows.map((r, i) => [r.productId, i]))
+  const at = (i: ProductionItem) => rank.get(i.productId) ?? rank.size
+  return state.items.filter((i) => i.orderId === orderId).sort((a, b) => at(a) - at(b))
+}
+
+/** + the log and the production orders: the ProductionView every production route answers. */
 export async function loadProductionView(db: Db, proposal: Proposal, today: ISODate): Promise<{ view: ProductionView; state: ProductionState }> {
   const state = await loadProductionDerived(db, proposal, today)
   const eventRows = await db.productionEvent.findMany({ where: { proposalId: proposal.id }, orderBy: [{ recordedAt: 'desc' }, { id: 'desc' }], take: PRODUCTION_EVENTS_MAX })
+  const orderRows = await db.productionOrder.findMany({ where: { proposalId: proposal.id }, include: orderInclude, orderBy: { seq: 'asc' } })
   const productOf = new Map(state.items.map((i) => [i.id, i.productId]))
   const rows = state.derived.rows.map((row): ProductionRow => {
     const p = state.products.get(row.productId)
@@ -159,6 +214,7 @@ export async function loadProductionView(db: Db, proposal: Proposal, today: ISOD
       summary: state.derived.summary,
       pendingIds: state.derived.pendingIds,
       events: eventRows.map((e) => toProductionEvent(e, productOf)),
+      orders: orderRows.map((o) => toProductionOrder(o, itemsOfOrder(state, o.id).map((i) => i.productId))),
     },
   }
 }

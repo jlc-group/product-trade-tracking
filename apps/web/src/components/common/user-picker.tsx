@@ -8,6 +8,9 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { cn } from '@/lib/utils'
 import { AvatarStack, UserAvatar } from './user-avatar'
 
+/** A picked person the active-user lookup no longer lists (deactivated), as the caller still knows them. */
+export type InactivePickedUser = Pick<User, 'id' | 'name' | 'avatarColor'> & Partial<Pick<User, 'nickname' | 'position' | 'department'>>
+
 interface UserPickerProps {
   value: string[]
   onChange: (ids: string[]) => void
@@ -19,13 +22,30 @@ interface UserPickerProps {
   trigger?: ReactNode
   align?: 'start' | 'center' | 'end'
   excludeIds?: string[]
+  /**
+   * Picked people the lookup no longer lists (deactivated): shown after the others, marked "(ปิดใช้งาน)", only so they
+   * can be unticked one by one — never offered for a new pick (they leave the list once unticked).
+   */
+  inactivePicked?: readonly InactivePickedUser[]
   /** id of the default trigger button, so a <Label htmlFor> can point at it. */
   id?: string
   /** Accessible name of the default trigger when there is no visible label. */
   'aria-label'?: string
 }
 
-export function UserPicker({ value, onChange, single, placeholder = 'เลือกผู้รับผิดชอบ', disabled, trigger, align = 'start', excludeIds = [], id, 'aria-label': ariaLabel }: UserPickerProps) {
+export function UserPicker({
+  value,
+  onChange,
+  single,
+  placeholder = 'เลือกผู้รับผิดชอบ',
+  disabled,
+  trigger,
+  align = 'start',
+  excludeIds = [],
+  inactivePicked = [],
+  id,
+  'aria-label': ariaLabel,
+}: UserPickerProps) {
   const [open, setOpen] = useState(false)
   const { data: users = [] } = useUserLookup()
   const selected = users.filter((u) => value.includes(u.id))
@@ -78,6 +98,26 @@ export function UserPicker({ value, onChange, single, placeholder = 'เลื�
                   </CommandItem>
                 )
               })}
+              {inactivePicked
+                .filter((u) => value.includes(u.id))
+                .map((u) => (
+                  <CommandItem
+                    key={u.id}
+                    value={`${u.name} ${u.nickname ?? ''} (ปิดใช้งาน)`}
+                    // Single: already the pick, so it just closes; multi: unticks.
+                    onSelect={() => (single ? setOpen(false) : onChange(value.filter((x) => x !== u.id)))}
+                    className="gap-2"
+                  >
+                    <UserAvatar user={{ ...u, isActive: false }} size="sm" tooltip={false} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm">
+                        {u.name} <span className="text-muted-foreground">(ปิดใช้งาน)</span>
+                      </span>
+                      <span className="block truncate text-xs text-muted-foreground">{u.position ?? u.department ?? ''}</span>
+                    </span>
+                    <CheckIcon className="size-4 text-primary" />
+                  </CommandItem>
+                ))}
             </CommandGroup>
           </CommandList>
         </Command>

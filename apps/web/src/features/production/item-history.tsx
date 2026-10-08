@@ -2,6 +2,7 @@ import {
   BadgeCheckIcon,
   CalendarClockIcon,
   FactoryIcon,
+  FileTextIcon,
   PackageCheckIcon,
   PackageXIcon,
   PencilIcon,
@@ -35,6 +36,8 @@ function eventLook(e: ProductionEvent): { icon: LucideIcon; tone: Tone } {
       return { icon: RotateCcwIcon, tone: 'muted' }
     case 'KEEP':
       return { icon: BadgeCheckIcon, tone: 'warning' }
+    case 'ORDER':
+      return { icon: FileTextIcon, tone: 'muted' }
     default:
       return { icon: CalendarClockIcon, tone: 'muted' }
   }
@@ -53,7 +56,7 @@ function EventList({ row, model }: { row: ProductionRow; model: ProductionModel 
               <Icon className="size-3.5" />
             </span>
             <div className="min-w-0 pt-0.5">
-              <p className="text-sm break-words">{eventTitle(e, model.storeWord)}</p>
+              <p className="text-sm break-words">{eventTitle(e, model.storeWord, model.userName)}</p>
               <p className="text-xs text-muted-foreground">
                 {model.userName(e.actorId)} · <span className="tabular">{formatDateTime(e.recordedAt)}</span>
               </p>
