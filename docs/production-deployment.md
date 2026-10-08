@@ -28,8 +28,8 @@ outside source synchronization. Required `.env` keys: `DATABASE_URL`, `WEB_ORIGI
 Secrets are local only. The initial password is saved in Production `.admin-initial-password`
 and must be changed at first sign-in.
 
-Cloudflare domain and the first Admin email are awaiting the workspace owner's values.
-The tunnel config will be tracked in We-Platform. Discord uses its existing deploy notifier,
+Public domain: `https://product-trade.wejlc.com`. The first Admin email is awaiting the owner's value.
+The dedicated tunnel config is tracked in We-Platform. Discord uses its existing deploy notifier,
 including commit, branch, build, local health and public URL.
 
 Health endpoint: `/api/v1/health`, including the exact deployed revision.
@@ -38,3 +38,11 @@ Do not run the old `test:e2e` against Production: it resets its target schema.
 Rollback application: set `current.json` to the previous object recorded in `last-deploy.json`,
 restart `product-trade-tracking-prod`, then verify `/api/v1/health` and assets.
 Database restore is a separate operator action after reviewing the migration and backup.
+
+Setup checkpoint (2026-10-08): source changes were committed/pushed; controller registration
+was deployed and verified; DNS and the dedicated connector were created; signed GitHub ping
+returned 200; staging build/typecheck/native runtime and HTTP routes/assets passed.
+The application has not been activated in Production. The newly created webhook is temporarily
+inactive until initial Admin bootstrap is configured, so setup pushes cannot deploy a partial app.
+Next: set `ADMIN_EMAIL`, activate the webhook, push a verification commit, then confirm migrations,
+bootstrap, deploy history, Discord acceptance and public HTTPS revision/assets.
