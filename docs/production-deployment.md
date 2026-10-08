@@ -27,6 +27,10 @@ outside source synchronization. Required `.env` keys: `DATABASE_URL`, `WEB_ORIGI
 `SESSION_COOKIE=__Host-ft_sid`, and `ADMIN_EMAIL` for first bootstrap.
 Secrets are local only. The initial password is saved in Production `.admin-initial-password`
 and must be changed at first sign-in.
+When `ADMIN_EMAIL` is missing, the controller explicitly invokes bootstrap with
+`--shelves-only`. It installs the standard shelf types without creating an Admin.
+Runtime activation, public HTTPS and automatic deployments remain available;
+first sign-in remains pending until the owner supplies the Admin email.
 
 Public domain: `https://product-trade.wejlc.com`. The first Admin email is awaiting the owner's value.
 The dedicated tunnel config is tracked in We-Platform. Discord uses its existing deploy notifier,
@@ -42,7 +46,8 @@ Database restore is a separate operator action after reviewing the migration and
 Setup checkpoint (2026-10-08): source changes were committed/pushed; controller registration
 was deployed and verified; DNS and the dedicated connector were created; signed GitHub ping
 returned 200; staging build/typecheck/native runtime and HTTP routes/assets passed.
-The application has not been activated in Production. The newly created webhook is temporarily
-inactive until initial Admin bootstrap is configured, so setup pushes cannot deploy a partial app.
-Next: set `ADMIN_EMAIL`, activate the webhook, push a verification commit, then confirm migrations,
-bootstrap, deploy history, Discord acceptance and public HTTPS revision/assets.
+The controller now supports runtime activation independently of initial Admin provisioning.
+Verify releases through the real GitHub push webhook, deployment history, Discord acceptance,
+and public HTTPS revision/assets.
+Initial Admin provisioning is a separate pending step: set `ADMIN_EMAIL` locally and run
+`npm run db:bootstrap -w @flowtrade/api` from the active release with the Production environment.
