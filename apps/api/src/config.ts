@@ -10,6 +10,8 @@ const isProd = process.env.NODE_ENV === 'production'
 
 export const config = {
   isProd,
+  host: process.env.HOST ?? (isProd ? '127.0.0.1' : '0.0.0.0'),
+  revision: process.env.RELEASE_SHA ?? 'development',
   port: Number(process.env.PORT ?? 3000),
   databaseUrl: required('DATABASE_URL'),
   /** Every FlowTrade table lives in this schema; nothing else in the database is touched. */

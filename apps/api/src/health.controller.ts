@@ -11,6 +11,6 @@ export class HealthController {
   @Get()
   async check() {
     const [{ now }] = await this.prisma.$queryRaw<{ now: Date }[]>`select now()`
-    return { ok: true, schema: config.dbSchema, dbTime: now }
+    return { ok: true, schema: config.dbSchema, dbTime: now, revision: config.revision }
   }
 }
