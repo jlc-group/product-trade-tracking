@@ -26,7 +26,7 @@ async function bootstrap() {
     app.use((req: Request, res: Response, next: () => void) => {
       if (!['GET', 'HEAD'].includes(req.method) || /^\/(api|assets)(\/|$)/.test(req.path) ||
           !req.accepts('html') || /\.[^/]+$/.test(req.path)) return next()
-      res.set('Cache-Control', 'no-store').sendFile(resolve(webDist, 'index.html'))
+      res.set('Cache-Control', 'no-store').sendFile('index.html', { root: webDist })
     })
   }
   await app.listen(config.port, config.host)
