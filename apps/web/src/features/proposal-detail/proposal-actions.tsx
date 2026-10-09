@@ -1,4 +1,4 @@
-import { can, canDeleteProposal, canEditProposal, canRescheduleProposal, isProposalOwner, PRODUCTION_HISTORY_DELETE, productionDeleteBlock, STATUS_LABEL, STATUS_ORDER, type ProposalStatus } from '@flowtrade/shared'
+import { can, canDeleteProposal, canEditProposal, canEditProposalDetails, canRescheduleProposal, isProposalOwner, PRODUCTION_HISTORY_DELETE, productionDeleteBlock, STATUS_LABEL, STATUS_ORDER, type ProposalStatus } from '@flowtrade/shared'
 import { CalendarClockIcon, ChevronDownIcon, CopyIcon, FileDownIcon, Loader2Icon, MoreHorizontalIcon, PencilIcon, Trash2Icon } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
@@ -75,6 +75,8 @@ export function ProposalActions({ proposal }: { proposal: ProposalDetail }) {
   const prod = useProductionSummary(proposal.id).summary
 
   const canEdit = canEditProposal(user, proposal)
+  // The details dialog (title, shelf, products, owner, team, note): owner or ADMIN only — not a MANAGER who isn't the owner.
+  const canEditDetails = canEditProposalDetails(user, proposal)
   // The launch date (whole timeline) moves only by the owner (creator) or ADMIN — not a MANAGER or team member.
   const canReschedule = canRescheduleProposal(user, proposal)
   // Same rules as the server: live production blocks everyone; production that was confirmed and then cancelled
@@ -207,7 +209,7 @@ export function ProposalActions({ proposal }: { proposal: ProposalDetail }) {
             <CalendarClockIcon /> เลื่อน{word}
           </Button>
         )}
-        {canEdit && (
+        {canEditDetails && (
           <Button variant="outline" onClick={() => setDialog('edit')}>
             <PencilIcon /> แก้ไขข้อมูล
           </Button>
@@ -254,9 +256,11 @@ export function ProposalActions({ proposal }: { proposal: ProposalDetail }) {
                     <CalendarClockIcon /> เลื่อน{word}
                   </DropdownMenuItem>
                 )}
-                <DropdownMenuItem onSelect={() => setDialog('edit')}>
-                  <PencilIcon /> แก้ไขข้อมูล
-                </DropdownMenuItem>
+                {canEditDetails && (
+                  <DropdownMenuItem onSelect={() => setDialog('edit')}>
+                    <PencilIcon /> แก้ไขข้อมูล
+                  </DropdownMenuItem>
+                )}
               </>
             )}
             <DropdownMenuItem asChild>
@@ -276,7 +280,7 @@ export function ProposalActions({ proposal }: { proposal: ProposalDetail }) {
       </div>
 
       {canReschedule && <RescheduleDialog proposal={proposal} open={dialog === 'reschedule'} onOpenChange={(open) => !open && setDialog(null)} />}
-      {canEdit && <EditProposalDialog proposal={proposal} open={dialog === 'edit'} onOpenChange={(open) => !open && setDialog(null)} />}
+      {canEditDetails && <EditProposalDialog proposal={proposal} open={dialog === 'edit'} onOpenChange={(open) => !open && setDialog(null)} />}
       {canDuplicate && <DuplicateDialog proposal={proposal} open={dialog === 'duplicate'} onOpenChange={(open) => !open && setDialog(null)} />}
       {confirmDialog}
     </>

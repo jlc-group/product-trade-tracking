@@ -8,6 +8,7 @@ import {
   canDeleteProposal,
   canEditProposal,
   canRescheduleProposal,
+  canEditProposalDetails,
   canEditProposalStores,
   clipProposalTitle,
   CONFIRMED_STATUSES,
@@ -222,9 +223,12 @@ export class ProposalsService {
   update(user: User, id: string, patch: UpdateProposalBody): Promise<Proposal> {
     return this.prisma.$transaction(async (tx) => {
       // SKUs / stores decide which SKUs passed ("รอผลิต"): same lock order as presentation and production writes.
+      // Always lock first, so the owner check below sees the latest owner (a concurrent hand-over can't slip past it).
       const movesPassed = !!(patch.productIds || patch.storeIds)
-      if (movesPassed) await lockProposal(tx, id)
-      const proposal = await this.editable(tx, user, id, 'เฉพาะเจ้าของงานหรือผู้จัดการเท่านั้นที่แก้ไขได้')
+      await lockProposal(tx, id)
+      const proposal = await this.access.loadVisible(tx, user, id)
+      // Details, team and owner: the owner or ADMIN only (a MANAGER who is not the owner cannot).
+      if (!canEditProposalDetails(user, proposal)) throw forbidden('แก้ไขข้อมูลโปรเจกต์ได้เฉพาะเจ้าของโปรเจกต์หรือ Admin')
       const today = todayBangkok()
       const production = movesPassed ? (await loadProductionDerived(tx, proposal, today)).derived : null
       const data: Prisma.ProposalUncheckedUpdateInput = { updatedAt: new Date() }

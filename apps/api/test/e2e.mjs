@@ -873,7 +873,7 @@ async function main() {
     r = await pakorn.get('/notifications')
     expect('new member got a "คุณถูกเพิ่มเป็นทีมงาน" notification', r, 200, (j) => j.some((n) => n.title === 'คุณถูกเพิ่มเป็นทีมงาน' && n.link === `/proposals/${A.id}` && n.type === 'PROPOSAL_STATUS' && !n.isRead))
     r = await pakorn.patch(`/proposals/${A.id}`, { title: 'hijack' })
-    expectError('member (not owner) PATCH → 403', r, 403, 'FORBIDDEN', 'เฉพาะเจ้าของงานหรือผู้จัดการเท่านั้นที่แก้ไขได้')
+    expectError('member (not owner) PATCH → 403', r, 403, 'FORBIDDEN', 'เฉพาะเจ้าของโปรเจกต์หรือ Admin')
     r = await nattida.patch(`/proposals/${A.id}`, { title: '   ' })
     expectError('PATCH blank title → 422', r, 422, 'VALIDATION', 'กรุณาระบุชื่องาน')
     r = await nattida.patch(`/proposals/${A.id}`, { productIds: [] })
@@ -883,7 +883,9 @@ async function main() {
     r = await nattida.patch(`/proposals/${A.id}`, { shelfTypeId: S.shelves.exclusive.id })
     expect('PATCH shelf type', r, 200, (j) => j.shelfTypeId === S.shelves.exclusive.id)
     r = await manager.patch(`/proposals/${A.id}`, { note: 'ผู้จัดการแก้ไข' })
-    expect('MANAGER (proposal.update.any) PATCH', r, 200, (j) => j.note === 'ผู้จัดการแก้ไข')
+    expectError('MANAGER (not owner) PATCH → 403', r, 403, 'FORBIDDEN', 'เฉพาะเจ้าของโปรเจกต์หรือ Admin')
+    r = await admin.patch(`/proposals/${A.id}`, { note: 'Admin แก้ไข' })
+    expect('ADMIN (proposal.details.any) PATCH', r, 200, (j) => j.note === 'Admin แก้ไข')
 
     // Status
     r = await nattida.post(`/proposals/${A.id}/status`, { status: 'COMPLETED' })

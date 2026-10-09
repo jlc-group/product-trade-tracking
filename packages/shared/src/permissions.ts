@@ -22,6 +22,7 @@ export const PERMISSIONS = [
   'activity.read.all',
   'task.dates.edit',
   'proposal.reschedule',
+  'proposal.details.any',
   'task.department.any',
 ] as const
 
@@ -45,7 +46,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
 export const PERMISSION_LABEL: Record<Permission, string> = {
   'proposal.create': 'สร้างการเสนอสินค้า',
   'proposal.read.all': 'ดูการเสนอสินค้าทั้งหมด',
-  'proposal.update.any': 'แก้ไขการเสนอสินค้าของทุกคน',
+  'proposal.update.any': 'เปลี่ยนสถานะ / ตัดสินผลนำเสนอและการผลิตของทุกโปรเจกต์ (แก้ข้อมูลโปรเจกต์ไม่ได้)',
   'proposal.delete.any': 'ลบการเสนอสินค้าของทุกคน',
   'proposal.stores.edit': 'เปลี่ยนห้าง / แพลตฟอร์มของโปรเจกต์ที่สร้างแล้ว',
   'task.manage.any': 'จัดการ Task ในทุกโปรเจกต์',
@@ -59,6 +60,7 @@ export const PERMISSION_LABEL: Record<Permission, string> = {
   'manufacturer.manage': 'จัดการรายชื่อบริษัทรับผลิต',
   'activity.read.all': 'ดูประวัติการใช้งานทั้งหมด',
   'task.dates.edit': 'แก้วันเริ่ม / วันครบกำหนดของงานที่สร้างแล้ว',
+  'proposal.details.any': 'แก้ไขข้อมูลโปรเจกต์ของทุกคน (ชื่อ ประเภท Shelf สินค้า เจ้าของ ทีมงาน หมายเหตุ)',
   'proposal.reschedule': 'เลื่อนวันวางขาย / วันเปิดขายของทุกโปรเจกต์ (เจ้าของเลื่อนได้เฉพาะโปรเจกต์ของตัวเอง)',
   'task.department.any': 'แก้ไขงานของทุกแผนก',
 }
@@ -100,6 +102,15 @@ export function canEditProposal(user: Actor | null | undefined, proposal: Pick<P
 export function canRescheduleProposal(user: Actor | null | undefined, proposal: Pick<Proposal, 'ownerId'>) {
   if (!user) return false
   return can(user, 'proposal.reschedule') || isProposalOwner(user, proposal)
+}
+
+/**
+ * Edit the project's details (title, shelf type, products, owner, team, note — the "แก้ไขข้อมูล" dialog): its owner or ADMIN
+ * only; a MANAGER who is not the owner cannot. Status, production and presentation decisions keep canEditProposal.
+ */
+export function canEditProposalDetails(user: Actor | null | undefined, proposal: Pick<Proposal, 'ownerId'>) {
+  if (!user) return false
+  return can(user, 'proposal.details.any') || isProposalOwner(user, proposal)
 }
 
 /** Stores are fixed once a proposal exists; only ADMIN may add or remove them. */

@@ -1,4 +1,4 @@
-import { can, canEditProposalStores, CHANNEL_TERMS, PROPOSAL_TITLE_MAX, type User } from '@flowtrade/shared'
+import { canEditProposalDetails, canEditProposalStores, CHANNEL_TERMS, PROPOSAL_TITLE_MAX, type User } from '@flowtrade/shared'
 import { Loader2Icon, LockIcon, UserPlusIcon } from 'lucide-react'
 import { useId, useState, type FormEvent } from 'react'
 import type { ProposalDetail, UpdateProposalInput } from '@/api'
@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { displayName } from '@/lib/format'
 import { ProductMultiSelect } from './product-multi-select'
-import { sameSet, storeWord } from './utils'
+import { launchWord, sameSet, storeWord } from './utils'
 
 interface Props {
   proposal: ProposalDetail
@@ -36,7 +36,8 @@ export function EditProposalDialog({ proposal, open, onOpenChange }: Props) {
 
 function EditForm({ proposal, onDone }: { proposal: ProposalDetail; onDone: () => void }) {
   const me = useCurrentUser()
-  const canChangeOwner = can(me, 'proposal.update.any')
+  // Hand the project to someone else: its owner or ADMIN (the same people who may open this dialog).
+  const canChangeOwner = canEditProposalDetails(me, proposal)
   const canChangeStores = canEditProposalStores(me)
   const terms = CHANNEL_TERMS[proposal.channel]
   const place = storeWord(proposal.channel)
@@ -224,10 +225,10 @@ function EditForm({ proposal, onDone }: { proposal: ProposalDetail; onDone: () =
           )}
           <p className="text-xs text-muted-foreground">
             {!canChangeOwner
-              ? 'เฉพาะผู้จัดการหรือ Admin ที่เปลี่ยนเจ้าของได้'
+              ? 'เฉพาะเจ้าของหรือ Admin ที่เปลี่ยนเจ้าของได้'
               : ownerChanged && previousOwnerActive
                 ? `${proposal.owner.name} จะยังอยู่ในทีมงาน`
-                : 'เจ้าของดูแลภาพรวมและเปลี่ยนสถานะได้'}
+                : `เจ้าของแก้ไขข้อมูล ทีมงาน เปลี่ยนสถานะ และเลื่อน${launchWord(proposal.channel)}ได้`}
           </p>
         </div>
 
@@ -253,7 +254,7 @@ function EditForm({ proposal, onDone }: { proposal: ProposalDetail; onDone: () =
               </Button>
             }
           />
-          <p className="text-xs text-muted-foreground">ทีมงานเพิ่ม แก้ไข และติ๊กงานได้ทุกงาน</p>
+          <p className="text-xs text-muted-foreground">ทีมงานเพิ่ม แก้ไข และติ๊กงานของแผนกตัวเองได้</p>
         </div>
       </div>
 

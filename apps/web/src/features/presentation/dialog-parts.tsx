@@ -110,7 +110,7 @@ export function SelectAllButtons({ total, selected, onAll, onNone }: { total: nu
 }
 
 /** Field hint under a PeoplePicker limited to the project team (pickableIds). */
-export const PICKER_HINT = 'เลือกได้เฉพาะทีมโปรเจกต์ — เพิ่มสมาชิกได้ที่หัวโปรเจกต์'
+export const PICKER_HINT = 'เลือกได้เฉพาะทีมโปรเจกต์ — เจ้าของโปรเจกต์หรือ Admin เพิ่มสมาชิกได้ที่ “แก้ไขข้อมูล”'
 
 type PickedPerson = Pick<User, 'id' | 'name' | 'nickname' | 'avatarColor' | 'isActive'> & Partial<Pick<User, 'position' | 'department'>>
 
