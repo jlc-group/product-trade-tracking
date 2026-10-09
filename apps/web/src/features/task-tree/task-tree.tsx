@@ -1,13 +1,4 @@
-import {
-  canManageTasks,
-  completionMode,
-  computeProgress,
-  computeToggle,
-  getAncestorIds,
-  type Task,
-  type TaskNode,
-  type User,
-} from '@flowtrade/shared'
+import { canManageTasks, completionMode, computeProgress, getAncestorIds, taskStructureRights, type Task, type TaskNode, type TaskStructureRights, type User } from '@flowtrade/shared'
 import {
   closestCenter,
   DndContext,
@@ -26,25 +17,11 @@ import { useQueryClient } from '@tanstack/react-query'
 import { ListTreeIcon, PlusIcon, RefreshCwIcon, SearchXIcon } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
-import { toast } from 'sonner'
 import type { ProposalDetail, UpdateTaskInput } from '@/api'
-import {
-  qk,
-  useCommentCounts,
-  useDeleteTask,
-  useDuplicateTask,
-  patchTasks,
-  useMoveTask,
-  useTasks,
-  useToggleTask,
-  useUpdateTask,
-  useUserLookup,
-} from '@/api/hooks'
+import { qk, useCommentCounts, useDeleteTask, useDuplicateTask, useMoveTask, useTasks, useToggleTask, useUpdateTask, useUserLookup } from '@/api/hooks'
 import { useCurrentUser } from '@/auth/auth'
 import { EmptyState, useConfirm } from '@/components/common/misc'
 import { Button } from '@/components/ui/button'
-import { usePresentation } from '@/features/presentation/hooks'
-import { canRecordPresentation } from '@/features/presentation/permissions'
 import { today } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { compareDepartments, departmentOptions } from './department-utils'
@@ -54,7 +31,7 @@ import { TaskDrawer } from './task-drawer'
 import { TreeBranch } from './tree-branch'
 import { TreeSkeleton, TreeToolbar } from './tree-toolbar'
 import { TreeEnvContext, TreeViewContext, type TreeActions, type TreeEnv, type TreeView } from './tree-context'
-import { countDescendants, GRID_COLS, levelNoun, parentKeyOf, ROOT_KEY } from './tree-utils'
+import { countDescendants, GRID_COLS, parentKeyOf, ROOT_KEY } from './tree-utils'
 import { computeFilter, countDepartments, countMatches, FILTER_LABEL, NO_DEPARTMENT, useStableTree, useTreeState, type DepartmentFilter, type TreeFilter } from './use-tree-state'
 
 const NO_COUNTS: Record<string, number> = {}
@@ -116,11 +93,17 @@ export function TaskTree({ proposal }: { proposal: ProposalDetail }) {
   const moveTask = useMoveTask(proposal.id)
   const deleteTask = useDeleteTask(proposal.id)
   const duplicateTask = useDuplicateTask(proposal.id)
-  const presentation = usePresentation(proposal.id)
 
-  const canManage = canManageTasks(me, proposal)
+  // New tasks start without a department, so the team may add them; each existing task has its own rights (useTaskRights).
+  const canAddTasks = canManageTasks(me, proposal)
   const cancelled = proposal.status === 'CANCELLED'
-  const dragEnabled = canManage && !isFiltering
+  // Reorder / move / copy / delete follow the API: the parent and every sub task count too (shared taskStructureRights).
+  // The map keeps its identity until a right changes, so rows don't re-render on every edit.
+  const structureKey = useMemo(() => JSON.stringify((tasks ?? []).map((t) => [t.id, taskStructureRights(me, proposal, tasks ?? [], t.id)])), [tasks, me, proposal])
+  const structure = useMemo(() => new Map(JSON.parse(structureKey) as [string, TaskStructureRights][]), [structureKey])
+  // The handle column is kept only when at least one task can be reordered by this user.
+  const anyReorderable = useMemo(() => [...structure.values()].some((s) => s.reorder), [structure])
+  const dragEnabled = anyReorderable && !isFiltering
   const todayStr = today()
 
   const filterResult = useMemo(() => computeFilter(tree.byId, filter, department, me.id, todayStr), [tree.byId, filter, department, me.id, todayStr])
@@ -154,6 +137,7 @@ export function TaskTree({ proposal }: { proposal: ProposalDetail }) {
   }
 
   const reorder = (node: TaskNode, newIndex: number) => {
+    if (!structure.get(node.id)?.reorder) return
     const siblings = siblingsOf(node)
     const oldIndex = siblings.findIndex((s) => s.id === node.id)
     if (oldIndex < 0 || newIndex < 0 || newIndex >= siblings.length || newIndex === oldIndex) return
@@ -162,38 +146,6 @@ export function TaskTree({ proposal }: { proposal: ProposalDetail }) {
     void qc.cancelQueries({ queryKey: qk.tasks(proposal.id) })
     qc.setQueryData<Task[]>(qk.tasks(proposal.id), (old) => old?.map((t) => (order.has(t.id) ? { ...t, sortOrder: order.get(t.id)! } : t)))
     moveTask.mutate({ id: node.id, input: { parentId: node.parentId, index: newIndex } })
-  }
-
-  /** The highest task among `changes` that became done (the one worth announcing). */
-  const firstCompleted = (changes: { id: string; isDone: boolean }[]) =>
-    changes
-      .filter((c) => c.isDone)
-      .map((c) => tree.byId.get(c.id))
-      .filter((n): n is TaskNode => !!n)
-      .sort((a, b) => a.level - b.level)[0]
-
-  /** Every task is done: the next step is the presentation track (bundle a ชุดนำเสนอ, or back to the existing one). */
-  const celebrateAllDone = () => {
-    const hasTracks = (presentation.data?.tracks.length ?? 0) > 0
-    const canCreate = canRecordPresentation(me, proposal)
-    const goPresent = () =>
-      setSearchParams((prev) => {
-        const next = new URLSearchParams(prev)
-        next.delete('task')
-        next.delete('store')
-        next.set('tab', 'present')
-        if (!hasTracks) next.set('create', '1')
-        return next
-      })
-    toast.success('งานครบ 100% แล้ว 🎉', {
-      description: hasTracks
-        ? 'งานเตรียมกลับมาครบแล้ว — สร้างชุดใหม่หรือนำเสนอใหม่ได้'
-        : canCreate
-          ? 'ขั้นต่อไป: รวมงานเป็นชุดนำเสนอ แล้วติดตามผลจาก Buyer'
-          : 'แจ้งเจ้าของหรือทีมงานให้สร้างชุดนำเสนอ',
-      duration: 10_000,
-      action: hasTracks ? { label: 'ไปที่แท็บนำเสนอ Buyer', onClick: goPresent } : canCreate ? { label: 'สร้างชุดนำเสนอ', onClick: goPresent } : undefined,
-    })
   }
 
   const impl: TreeActions = {
@@ -208,39 +160,13 @@ export function TaskTree({ proposal }: { proposal: ProposalDetail }) {
         { replace: true },
       )
     },
-    toggle: async (node, isDone) => {
-      const all = tasks ?? []
+    toggle: (node, isDone) => {
       // Only a task ticked by hand gets here (the boxes of the others are disabled); its ancestors follow on their own.
       if (completionMode(node, node.children.length > 0) !== 'manual') return
-      const ancestors = new Set(getAncestorIds(all, node.id))
-      const completedAncestor = isDone ? firstCompleted(computeToggle(all, node.id, true).filter((c) => ancestors.has(c.id))) : undefined
-      try {
-        const result = await toggleTask.mutateAsync({ id: node.id, isDone })
-        if (isDone && result.allDone && !cancelled) celebrateAllDone()
-        else if (completedAncestor) toast.success(`${levelNoun(completedAncestor.level)} “${completedAncestor.title}” เสร็จครบแล้ว 🎉`)
-      } catch {
-        // already toasted and rolled back by the hook
-      }
+      // Errors are toasted and rolled back by the hook.
+      toggleTask.mutate({ id: node.id, isDone })
     },
-    update: (id, patch: UpdateTaskInput, successMessage) => {
-      // A table edit can tick (or re-open) the task and its ancestors: same rules as the server.
-      const before = tasks ?? []
-      const { next, flips } = patchTasks(before, id, patch)
-      const ticked = firstCompleted(flips)
-      const reopened = flips.find((c) => !c.isDone)
-      const allDone = flips.some((c) => c.isDone) && next.length > 0 && next.every((t) => t.isDone)
-      updateTask.mutate(
-        { id, patch },
-        {
-          onSuccess: () => {
-            if (allDone && !cancelled) celebrateAllDone()
-            else if (ticked) toast.success(`กรอกข้อมูลครบแล้ว — ติ๊ก “${ticked.title}” เสร็จให้อัตโนมัติ`)
-            else if (reopened) toast.info(`ข้อมูลไม่ครบแล้ว — “${tree.byId.get(reopened.id)?.title ?? 'งานนี้'}” กลับเป็นยังไม่เสร็จ`)
-            else if (successMessage) toast.success(successMessage)
-          },
-        },
-      )
-    },
+    update: (id, patch: UpdateTaskInput) => updateTask.mutate({ id, patch }),
     toggleExpanded: (id) => treeState.toggleExpanded(id),
     startAdd: (parentId) => {
       if (isFiltering) treeState.clearFilters()
@@ -251,21 +177,18 @@ export function TaskTree({ proposal }: { proposal: ProposalDetail }) {
     stopAdd: () => setAddingKey(null),
     startRename: (id) => setRenamingId(id),
     stopRename: () => setRenamingId(null),
-    requestMove: (node) => setMoveId(node.id),
+    requestMove: (node) => {
+      if (structure.get(node.id)?.move) setMoveId(node.id)
+    },
     moveBy: (node, delta) => {
       const index = siblingsOf(node).findIndex((s) => s.id === node.id)
       reorder(node, index + delta)
     },
     duplicate: (node) => {
-      duplicateTask.mutate(node.id, {
-        onSuccess: (copy) =>
-          toast.success(`คัดลอก “${node.title}” แล้ว`, {
-            description: node.children.length ? `รวมงานย่อย ${countDescendants(node)} รายการ (ยังไม่ติ๊ก)` : undefined,
-            action: { label: 'เปิดดู', onClick: () => actionsRef.current.openTask(copy.id) },
-          }),
-      })
+      if (structure.get(node.id)?.duplicate) duplicateTask.mutate(node.id)
     },
     remove: async (node) => {
+      if (!structure.get(node.id)?.remove) return
       const sub = countDescendants(node)
       const ok = await confirm({
         title: `ลบ “${node.title}”?`,
@@ -279,7 +202,6 @@ export function TaskTree({ proposal }: { proposal: ProposalDetail }) {
       if (!ok) return
       deleteTask.mutate(node.id, {
         onSuccess: (res) => {
-          toast.success(sub > 0 ? `ลบ “${node.title}” และงานย่อยแล้ว` : `ลบ “${node.title}” แล้ว`)
           if (selectedId && res.removed.includes(selectedId)) closeTask()
         },
       })
@@ -294,7 +216,7 @@ export function TaskTree({ proposal }: { proposal: ProposalDetail }) {
     () => ({
       openTask: (id, opts) => actionsRef.current.openTask(id, opts),
       toggle: (node, isDone) => actionsRef.current.toggle(node, isDone),
-      update: (id, patch, msg) => actionsRef.current.update(id, patch, msg),
+      update: (id, patch) => actionsRef.current.update(id, patch),
       toggleExpanded: (id) => actionsRef.current.toggleExpanded(id),
       startAdd: (parentId) => actionsRef.current.startAdd(parentId),
       stopAdd: () => actionsRef.current.stopAdd(),
@@ -359,8 +281,8 @@ export function TaskTree({ proposal }: { proposal: ProposalDetail }) {
   // ---------- context values ----------
 
   const env = useMemo<TreeEnv>(
-    () => ({ me, proposal, canManage, cancelled, usersById, departments, dragEnabled, actions }),
-    [me, proposal, canManage, cancelled, usersById, departments, dragEnabled, actions],
+    () => ({ me, proposal, canAddTasks, cancelled, usersById, departments, dragEnabled, structure, actions }),
+    [me, proposal, canAddTasks, cancelled, usersById, departments, dragEnabled, structure, actions],
   )
   const view = useMemo<TreeView>(
     () => ({ isExpanded, filter: filterResult, addingKey, renamingId, selectedId, dragGroup, commentCounts }),
@@ -388,7 +310,7 @@ export function TaskTree({ proposal }: { proposal: ProposalDetail }) {
 
   const moveNode = moveId ? (tree.byId.get(moveId) ?? null) : null
   const isEmpty = tree.roots.length === 0
-  const showRootAdd = canManage && !isFiltering
+  const showRootAdd = canAddTasks && !isFiltering
   const noMatches = !!filterResult && filterResult.matches.size === 0
 
   return (
@@ -399,12 +321,12 @@ export function TaskTree({ proposal }: { proposal: ProposalDetail }) {
             icon={<ListTreeIcon className="size-5" />}
             title="ยังไม่มีงานในโปรเจกต์นี้"
             description={
-              canManage
+              canAddTasks
                 ? 'แบ่งงานเป็น Task → Sub task → Mini task กำหนดวันและผู้รับผิดชอบ แล้วติ๊กเมื่อเสร็จ ทุกคนในทีมจะเห็นความคืบหน้าทันที'
                 : 'ทีมงานของโปรเจกต์ยังไม่ได้เพิ่มงาน เมื่อมีงานแล้วจะแสดงที่นี่'
             }
             action={
-              canManage && (
+              canAddTasks && (
                 <Button onClick={() => actions.startAdd(null)}>
                   <PlusIcon />
                   เพิ่มงานหลัก
@@ -426,7 +348,7 @@ export function TaskTree({ proposal }: { proposal: ProposalDetail }) {
               canExpand={tree.parentIds.length > 0}
               onExpandAll={treeState.expandAll}
               onCollapseAll={() => treeState.collapseAll(tree.parentIds)}
-              onAddRoot={canManage ? () => actions.startAdd(null) : null}
+              onAddRoot={canAddTasks ? () => actions.startAdd(null) : null}
             />
 
             {/* column headers (wide layout) */}
@@ -483,14 +405,12 @@ export function TaskTree({ proposal }: { proposal: ProposalDetail }) {
           onClose={() => setMoveId(null)}
           onMove={(node, parentId) => {
             const index = parentId ? (tree.byId.get(parentId)?.children.length ?? 0) : tree.roots.length
-            const target = parentId ? tree.byId.get(parentId) : null
             moveTask.mutate(
               { id: node.id, input: { parentId, index } },
               {
                 onSuccess: () => {
                   setMoveId(null)
                   if (parentId) expandMany([parentId, ...getAncestorIds(tasks, parentId)])
-                  toast.success(target ? `ย้าย “${node.title}” ไปไว้ใต้ “${target.title}” แล้ว` : `ย้าย “${node.title}” ขึ้นเป็นงานหลักแล้ว`)
                 },
               },
             )

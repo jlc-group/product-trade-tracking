@@ -7,6 +7,7 @@ import {
   can,
   canDeleteProposal,
   canEditProposal,
+  canRescheduleProposal,
   canEditProposalStores,
   clipProposalTitle,
   CONFIRMED_STATUSES,
@@ -331,7 +332,9 @@ export class ProposalsService {
       // Lock the proposal row before touching tasks: the tasks module locks in the same order (no deadlock),
       // and two concurrent date changes can't both shift tasks from the same old date.
       await lockProposal(tx, id)
-      const proposal = await this.editable(tx, user, id, 'เฉพาะเจ้าของงานหรือผู้จัดการเท่านั้นที่เปลี่ยนวันวางขายได้')
+      const proposal = await this.access.loadVisible(tx, user, id)
+      // The launch date fixes the whole timeline: only the owner (creator) or ADMIN moves it — not a MANAGER or team member.
+      if (!canRescheduleProposal(user, proposal)) throw forbidden(`เลื่อน${proposal.channel === 'ONLINE' ? 'วันเปิดขาย' : 'วันวางขาย'}ได้เฉพาะเจ้าของโปรเจกต์หรือ Admin`)
       const delta = diffDays(proposal.targetDate, targetDate)
       const now = new Date()
       if (shiftTasks && delta !== 0) {

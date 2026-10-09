@@ -2,7 +2,6 @@ import { LAUNCH_DAY_OF_MONTH, PREP_DAYS, type Channel, type TaskTemplate } from 
 import { ListTreeIcon, Loader2Icon, MousePointerClickIcon, PlusIcon, SearchIcon, XIcon } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
-import { toast } from 'sonner'
 import { templateMutations, useShelfTypes, useStores, useTemplates } from '@/api/hooks'
 import { EmptyState, PageHeader, useConfirm } from '@/components/common/misc'
 import { Button } from '@/components/ui/button'
@@ -84,7 +83,6 @@ export default function AdminTemplatesPage() {
       })
       setDirty(false)
       setParams({ id: created.id })
-      toast.success('สร้างแม่แบบใหม่แล้ว', { description: 'ตั้งชื่อ เพิ่มขั้นตอน แล้วเปิดใช้งานเมื่อพร้อม — ตอนนี้ยังปิดไว้ ทีมจะยังไม่เห็น' })
     } catch {
       // toasted by the hook
     }
@@ -112,7 +110,6 @@ export default function AdminTemplatesPage() {
       })
       setDirty(false)
       setParams({ id: created.id })
-      toast.success(`ทำสำเนา "${t.name}" แล้ว`, { description: 'สำเนาถูกปิดใช้งานไว้ก่อน แก้ไขเสร็จแล้วค่อยเปิดใช้งาน' })
     } catch {
       // toasted by the hook
     }
@@ -130,21 +127,11 @@ export default function AdminTemplatesPage() {
       onSuccess: () => {
         setDirty(false)
         setParams({})
-        toast.success(`ลบแม่แบบ "${t.name}" แล้ว`)
       },
     })
   }
 
-  const toggleActive = (t: TaskTemplate, isActive: boolean) =>
-    update.mutate(
-      { id: t.id, patch: { isActive } },
-      {
-        onSuccess: () =>
-          toast.success(isActive ? `เปิดใช้งาน "${t.name}" แล้ว` : `ปิดใช้งาน "${t.name}" แล้ว`, {
-            description: isActive ? 'ทีมเลือกใช้แม่แบบนี้ได้ตอนเสนอสินค้า' : 'แม่แบบนี้จะไม่แสดงตอนเสนอสินค้าใหม่ โปรเจกต์เดิมไม่เปลี่ยน',
-          }),
-      },
-    )
+  const toggleActive = (t: TaskTemplate, isActive: boolean) => update.mutate({ id: t.id, patch: { isActive } })
   const pendingActiveId = update.isPending && update.variables && 'isActive' in update.variables.patch ? update.variables.id : null
 
   const filtered = q.trim() !== '' || channel !== 'ALL'

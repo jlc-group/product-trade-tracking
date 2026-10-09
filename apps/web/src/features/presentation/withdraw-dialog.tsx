@@ -1,6 +1,5 @@
 import type { ISODate } from '@flowtrade/shared'
 import { useId, useState, type FormEvent } from 'react'
-import { toast } from 'sonner'
 import { DateField } from '@/components/common/date-field'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
@@ -69,13 +68,11 @@ function WithdrawForm({ model, view, target, onDone }: { model: PresentationMode
     try {
       if (target && patch) {
         await edit.mutateAsync({ trackId: view.track.id, targetEventId: target.id, patch })
-        toast.success('บันทึกการแก้ไขแล้ว')
       } else {
         setHolding(true)
         // Withdrawing is allowed from any open stage, so the stage as loaded now (not as opened): after a 409
         // STALE the refetched stage goes up on the retry, as the toast suggests.
         await record.mutateAsync({ trackIds: [view.track.id], expectStage: view.stage, events: [event] })
-        toast.success(`ยุติการนำเสนอ ${view.store.name} แล้ว`, { description: 'ไม่นับในอัตราผ่านการพิจารณา' })
       }
       onDone()
     } catch {

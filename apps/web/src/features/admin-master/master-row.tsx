@@ -22,9 +22,6 @@ export interface MasterRowProps {
   deleteNote?: ReactNode
   /** Shown when `description` is empty (default "ไม่มีคำอธิบาย"). */
   emptyDescription?: string
-  /** Toast hints of the active switch (default: the proposal wizard's wording). */
-  onHint?: string
-  offHint?: string
   /** What uses the record, for the delete guard's copy (default: proposals). */
   usedBy?: UsedBy
 }
@@ -45,11 +42,9 @@ export function MasterRow({
   onDelete,
   deleteNote,
   emptyDescription = 'ไม่มีคำอธิบาย',
-  onHint,
-  offHint,
   usedBy,
 }: MasterRowProps) {
-  const { checked, pending, toggle } = useActiveToggle({ name, isActive, setActive: onSetActive, onHint, offHint })
+  const { checked, pending, toggle } = useActiveToggle({ isActive, setActive: onSetActive })
   const muted = !checked
 
   return (

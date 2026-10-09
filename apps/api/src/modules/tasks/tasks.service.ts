@@ -3,6 +3,9 @@ import { Injectable } from '@nestjs/common'
 import {
   applyDetailPatch,
   autoCompletionHint,
+  canCreateTask,
+  canEditTaskDates,
+  canManageTask,
   canManageTasks,
   canToggleTask,
   checkMove,
@@ -17,8 +20,12 @@ import {
   isDueWithin,
   isOverdue,
   MAX_TASK_LEVEL,
+  moveTaskLockReason,
   orderAsTree,
   readDetailFields,
+  TASK_DATES_ADMIN_ONLY,
+  taskLockReason,
+  taskStructureRights,
   todayBangkok,
   type Progress,
   type Proposal,
@@ -27,7 +34,7 @@ import {
   type User,
 } from '@flowtrade/shared'
 import type { TaskWithContext } from '@flowtrade/shared/api-types'
-import { ActivityService } from '../../common/activity.service.js'
+import { ActivityService, TASK_UPDATE_PREFIX } from '../../common/activity.service.js'
 import { conflict, forbidden, invalid, notFound } from '../../common/errors.js'
 import { fromDateOnly } from '../../common/dates.js'
 import { detailFieldsJson, proposalWithStoresInclude, taskInclude, toProposal, toStores, toTask } from '../../common/mappers.js'
@@ -51,6 +58,24 @@ const assignedNotice = (proposalId: string, taskId: string, title: string) => ({
   link: `/proposals/${proposalId}?task=${taskId}`,
 })
 
+const ASSIGNEE_ONLY = 'ผู้รับผิดชอบงานแก้ไขได้เฉพาะรายละเอียดและข้อมูลในตาราง'
+
+/** What the department rules of a tree change look at (the shared helpers take the whole proposal's tasks). */
+type TreeTask = Pick<Task, 'id' | 'parentId' | 'responsible' | 'title'>
+
+/** 403 for an edit of one task: says which department owns it when that locks the user out, else `fallback`. */
+const taskDenied = (user: User, task: Pick<Task, 'responsible'>, fallback: string) => forbidden(taskLockReason(user, task) ?? fallback)
+
+/**
+ * Move / copy / delete (rules shared with the web: taskStructureRights / moveTaskLockReason): the project team, then the
+ * task itself (its own department lock), then the other tasks the change touches — `allowed` / `reason` from the helper.
+ */
+function assertStructure(user: User, proposal: Proposal, task: Pick<Task, 'responsible'>, allowed: boolean, reason: string | null, teamOnly: string, action: string) {
+  if (!canManageTasks(user, proposal)) throw forbidden(teamOnly)
+  if (!canManageTask(user, proposal, task)) throw taskDenied(user, task, teamOnly)
+  if (!allowed) throw forbidden(`${action}ไม่ได้${reason ? ` เพราะ${reason}` : ''}`)
+}
+
 @Injectable()
 export class TasksService {
   constructor(
@@ -71,6 +96,11 @@ export class TasksService {
     const row = await db.task.findUnique({ where: { id: taskId }, select: { proposalId: true } })
     if (!row) throw notFound('งาน')
     return row.proposalId
+  }
+
+  /** Every task of the proposal with what the department rules of a tree change need. */
+  private treeTasks(db: Db, proposalId: string): Promise<TreeTask[]> {
+    return db.task.findMany({ where: { proposalId }, select: { id: true, parentId: true, responsible: true, title: true } })
   }
 
   private async proposalTasks(db: Db, proposalId: string): Promise<Task[]> {
@@ -145,16 +175,22 @@ export class TasksService {
       const proposal = await this.access.load(tx, input.proposalId)
       await this.access.assertView(tx, user, proposal)
       if (!canManageTasks(user, proposal)) throw forbidden('เฉพาะทีมงานของโปรเจกต์นี้ที่เพิ่มงานได้')
+      // The new task's own department decides (also for a sub task); dates may be set while creating.
+      const responsible = input.responsible ?? null
+      if (!canCreateTask(user, proposal, responsible)) {
+        throw forbidden(`เพิ่มงานของแผนก ${responsible} ได้เฉพาะคนในแผนก ${responsible} หรือ Admin`)
+      }
       const title = input.title.trim()
       if (!title) throw invalid('กรุณาระบุชื่องาน', { title: 'กรุณาระบุชื่องาน' })
-      const parent = input.parentId ? await tx.task.findUnique({ where: { id: input.parentId }, select: { id: true, proposalId: true, level: true } }) : null
+      const parent = input.parentId ? await tx.task.findUnique({ where: { id: input.parentId }, select: { id: true, proposalId: true, level: true, responsible: true } }) : null
       if (input.parentId && !parent) throw notFound('งาน')
       if (parent && parent.proposalId !== proposal.id) throw invalid('งานแม่ไม่ได้อยู่ในโปรเจกต์เดียวกัน')
+      // A new sub task can re-open its parent, so the parent's department must allow the edit too.
+      if (parent && !canManageTask(user, proposal, parent)) throw taskDenied(user, parent, 'คุณไม่มีสิทธิ์เพิ่มงานย่อยใต้งานนี้')
       const level = parent ? parent.level + 1 : 1
       if (level > MAX_TASK_LEVEL) throw invalid('เพิ่มได้สูงสุด 3 ระดับ (Task → Sub task → Mini task)')
       validateDates(input.startDate, input.dueDate)
       const assigneeIds = await this.access.activeUserIds(tx, input.assigneeIds ?? [])
-      const responsible = input.responsible ?? null
 
       const now = new Date()
       const tree = await TaskTree.load(tx, proposal.id)
@@ -213,13 +249,24 @@ export class TasksService {
       const task = await this.findTask(tx, id)
       const proposal = await this.access.load(tx, task.proposalId)
       await this.access.assertView(tx, user, proposal)
-      const manager = canManageTasks(user, proposal)
-      const isAssigneeOnly = !manager && task.assigneeIds.includes(user.id)
-      if (!manager && !isAssigneeOnly) throw forbidden('คุณไม่มีสิทธิ์แก้ไขงานนี้')
+      // Full edit = ADMIN, or the team on a task with no department / the user's own department; assignee-level edit
+      // (description, table values) = the task's own assignee of that department. Everyone else only views (and comments).
+      const manager = canManageTask(user, proposal, task)
+      const isAssigneeOnly = !manager && canToggleTask(user, proposal, task)
+      if (!manager && !isAssigneeOnly) throw taskDenied(user, task, 'คุณไม่มีสิทธิ์แก้ไขงานนี้')
+      // Once a task exists only ADMIN sets or moves its dates (User and Manager never). The client re-sends both, so
+      // compare values (the same value is fine).
+      // Shifting the whole timeline goes through POST /proposals/:id/target-date.
+      const start = patch.startDate !== undefined ? patch.startDate : task.startDate
+      const due = patch.dueDate !== undefined ? patch.dueDate : task.dueDate
+      if (((start ?? null) !== task.startDate || (due ?? null) !== task.dueDate) && !canEditTaskDates(user)) {
+        throw forbidden(TASK_DATES_ADMIN_ONLY)
+      }
       // patch.responsible is already trimmed ('' → null); undefined = not sent.
       const responsibleChanged = patch.responsible !== undefined && patch.responsible !== task.responsible
-      if (isAssigneeOnly && (patch.assigneeIds || patch.title !== undefined || responsibleChanged)) {
-        throw forbidden('ผู้รับผิดชอบแก้ไขได้เฉพาะรายละเอียดและวันที่')
+      const priorityChanged = patch.priority !== undefined && patch.priority !== task.priority
+      if (isAssigneeOnly && (patch.assigneeIds || patch.title !== undefined || responsibleChanged || priorityChanged)) {
+        throw forbidden(ASSIGNEE_ONLY)
       }
       const formatChanged = patch.descriptionFormat !== undefined && patch.descriptionFormat !== task.descriptionFormat
       const rowsEdited = patch.detailFields !== undefined || patch.detailAppend !== undefined || patch.detailLabels !== undefined || patch.detailRemove !== undefined
@@ -237,8 +284,6 @@ export class TasksService {
       }
       const before = new Map(task.detailFields.map((f) => [f.id, f.value]))
       const filled = Object.keys(patch.detailValues ?? {}).filter((fid) => fields.find((f) => f.id === fid)?.value !== before.get(fid)).length
-      const start = patch.startDate !== undefined ? patch.startDate : task.startDate
-      const due = patch.dueDate !== undefined ? patch.dueDate : task.dueDate
       validateDates(start, due)
 
       let title = task.title
@@ -247,9 +292,12 @@ export class TasksService {
         if (!title) throw invalid('กรุณาระบุชื่องาน', { title: 'กรุณาระบุชื่องาน' })
       }
       let added: string[] = []
+      // Taken off the task: they hear about it through the bell (ACTIVITY), since the task leaves their list.
+      let removed: string[] = []
       if (patch.assigneeIds) {
         added = patch.assigneeIds.filter((a) => !task.assigneeIds.includes(a))
         const next = await this.access.activeUserIds(tx, patch.assigneeIds)
+        removed = task.assigneeIds.filter((u) => !next.includes(u))
         await tx.taskAssignee.deleteMany({ where: { taskId: id, userId: { notIn: next } } })
         const fresh = next.filter((u) => !task.assigneeIds.includes(u))
         if (fresh.length) {
@@ -278,7 +326,10 @@ export class TasksService {
       if (patch.detailLabels && Object.keys(patch.detailLabels).length) notes.push(`แก้ชื่อหัวข้อ ${Object.keys(patch.detailLabels).length} แถว`)
       if (filled) notes.push(`กรอกข้อมูล ${filled} ช่อง`)
       if (patch.detailAppend?.length) notes.push(`เพิ่มหัวข้อ ${patch.detailAppend.length} แถว`)
-      await this.activity.log(tx, user, 'task.update', 'TASK', id, proposal.id, `แก้ไขงาน: ${title}${notes.length ? ` (${notes.join(', ')})` : ''}`)
+      if (removed.length) notes.push(`นำผู้รับผิดชอบออก ${removed.length} คน`)
+      await this.activity.log(tx, user, 'task.update', 'TASK', id, proposal.id, `${TASK_UPDATE_PREFIX}${title}${notes.length ? ` (${notes.join(', ')})` : ''}`, {
+        extraRecipientIds: removed,
+      })
       // Every edit re-derives (not only table edits), so rows left from before the rule heal on any change.
       await this.followCompletion(tx, user, proposal, id)
       return this.findTask(tx, id)
@@ -313,7 +364,7 @@ export class TasksService {
   toggle(user: User, id: string, isDone: boolean): Promise<ToggleResult> {
     return this.prisma.$transaction(async (tx) => {
       const { task, proposal } = await this.openForTreeEdit(tx, user, id)
-      if (!canToggleTask(user, proposal, task)) throw forbidden('ทำเครื่องหมายได้เฉพาะงานที่คุณรับผิดชอบ')
+      if (!canToggleTask(user, proposal, task)) throw taskDenied(user, task, 'ทำเครื่องหมายได้เฉพาะงานที่คุณรับผิดชอบ')
       if (proposal.status === 'CANCELLED') throw invalid('โปรเจกต์นี้ถูกยกเลิกแล้ว')
       const now = new Date()
       const tree = await TaskTree.load(tx, proposal.id)
@@ -348,10 +399,14 @@ export class TasksService {
 
   move(user: User, id: string, input: MoveTaskBody): Promise<Task[]> {
     return this.prisma.$transaction(async (tx) => {
-      const { proposal } = await this.openForTreeEdit(tx, user, id)
-      if (!canManageTasks(user, proposal)) throw forbidden('เฉพาะทีมงานของโปรเจกต์นี้ที่จัดลำดับงานได้')
+      const { task: moved, proposal } = await this.openForTreeEdit(tx, user, id)
       const tree = await TaskTree.load(tx, proposal.id)
       const task = tree.require(id)
+      // A reorder among the same siblings changes only this task. A move to another parent carries the branch and changes
+      // both parents' completion, so the branch and both parents must be editable too.
+      const reorder = task.parentId === input.parentId
+      const lock = moveTaskLockReason(user, proposal, await this.treeTasks(tx, proposal.id), id, input.parentId)
+      assertStructure(user, proposal, moved, !lock, lock, 'เฉพาะทีมงานของโปรเจกต์นี้ที่จัดลำดับงานได้', reorder ? 'จัดลำดับงานนี้' : 'ย้ายงานนี้')
       const check = checkMove(tree.nodes, id, input.parentId)
       if (!check.ok || !check.newLevel) throw invalid(check.reason ?? 'ย้ายงานไม่ได้')
       const now = new Date()
@@ -383,17 +438,24 @@ export class TasksService {
   remove(user: User, id: string): Promise<{ removed: string[] }> {
     return this.prisma.$transaction(async (tx) => {
       const { task, proposal } = await this.openForTreeEdit(tx, user, id)
-      if (!canManageTasks(user, proposal)) throw forbidden('เฉพาะทีมงานของโปรเจกต์นี้ที่ลบงานได้')
       const now = new Date()
       const tree = await TaskTree.load(tx, proposal.id)
-      const ids = new Set([id, ...getDescendantIds(tree.nodes, id)])
+      const below = getDescendantIds(tree.nodes, id)
+      // Sub tasks go with it, so each of them must be the user's to delete too.
+      const rights = taskStructureRights(user, proposal, await this.treeTasks(tx, proposal.id), id)
+      assertStructure(user, proposal, task, rights.remove, rights.reason, 'เฉพาะทีมงานของโปรเจกต์นี้ที่ลบงานได้', 'ลบงานนี้')
+      const ids = new Set([id, ...below])
+      // Their assignees lose the tasks from their list: read them before the rows go, so the bell can tell them.
+      const assignees = await tx.taskAssignee.findMany({ where: { taskId: { in: [...ids] }, user: { isActive: true } }, select: { userId: true } })
       // Children, assignees and comments go with it (FK cascade); listed explicitly for clarity.
       await tx.task.deleteMany({ where: { id: { in: [...ids] } } })
       tree.remove(ids)
       tree.renumber(tree.siblings(task.parentId))
       tree.rederive(user.id, now)
       await tree.flush(tx, now)
-      await this.activity.log(tx, user, 'task.delete', 'TASK', id, proposal.id, `ลบงาน: ${task.title}${ids.size > 1 ? ` และงานย่อย ${ids.size - 1} รายการ` : ''}`)
+      await this.activity.log(tx, user, 'task.delete', 'TASK', id, proposal.id, `ลบงาน: ${task.title}${ids.size > 1 ? ` และงานย่อย ${ids.size - 1} รายการ` : ''}`, {
+        extraRecipientIds: assignees.map((a) => a.userId),
+      })
       return { removed: [...ids] }
     })
   }
@@ -401,13 +463,17 @@ export class TasksService {
   /** Copies the task with its subtree, right after the original; the copy starts open unless its tables are already filled. */
   duplicate(user: User, id: string): Promise<Task> {
     return this.prisma.$transaction(async (tx) => {
-      const { proposal } = await this.openForTreeEdit(tx, user, id)
-      if (!canManageTasks(user, proposal)) throw forbidden('คุณไม่มีสิทธิ์คัดลอกงานนี้')
+      const { task: source, proposal } = await this.openForTreeEdit(tx, user, id)
       const rows = await tx.task.findMany({ where: { proposalId: proposal.id }, include: taskInclude, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] })
       const tree = TaskTree.from(proposal.id, rows)
       const original = rows.find((r) => r.id === id)
       if (!original) throw notFound('งาน')
-      const subtreeIds = new Set([id, ...getDescendantIds(tree.nodes, id)])
+      const below = getDescendantIds(tree.nodes, id)
+      // The copy keeps each task's department and becomes a new child of the same parent (which it can re-open), so the
+      // user must manage the whole subtree being copied and that parent.
+      const rights = taskStructureRights(user, proposal, rows, id)
+      assertStructure(user, proposal, source, rights.duplicate, rights.reason, 'คุณไม่มีสิทธิ์คัดลอกงานนี้', 'คัดลอกงานนี้')
+      const subtreeIds = new Set([id, ...below])
       // Parents before children so every parent row exists when its child is inserted.
       const subtree = rows.filter((r) => subtreeIds.has(r.id)).sort((a, b) => a.level - b.level)
       const idMap = new Map(subtree.map((r) => [r.id, randomUUID()]))

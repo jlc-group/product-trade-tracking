@@ -2,7 +2,6 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { CHANNEL_TERMS, type Channel, type ShelfType } from '@flowtrade/shared'
 import { Loader2Icon } from 'lucide-react'
 import { Controller, useForm, useWatch } from 'react-hook-form'
-import { toast } from 'sonner'
 import { z } from 'zod'
 import { ApiError, type ShelfTypeInput } from '@/api'
 import { shelfTypeMutations } from '@/api/hooks'
@@ -97,10 +96,8 @@ function ShelfTypeForm({ shelfType, defaultChannel, shelfTypes, usage, onDone }:
       if (shelfType) {
         const { channel: nextChannel, ...rest } = input
         await update.mutateAsync({ id: shelfType.id, patch: nextChannel === shelfType.channel ? rest : input })
-        toast.success(`บันทึก ${cleanName} แล้ว`)
       } else {
         await create.mutateAsync(input)
-        toast.success(`เพิ่ม${SHELF_NOUN[values.channel]} “${cleanName}” แล้ว`, { description: 'แสดงเป็นตัวเลือกในขั้นตอนเสนอสินค้าทันที' })
       }
       onDone(values.channel)
     } catch (error) {

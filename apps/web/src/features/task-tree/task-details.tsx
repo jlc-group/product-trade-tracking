@@ -43,7 +43,7 @@ export function TaskDetails({ node, canManage, canFill }: { node: TaskNode; canM
     if (format === node.descriptionFormat) return
     if (format === 'FIELDS') {
       const rows = parseDetailText(node.description).map((r) => ({ id: uuid(), ...r }))
-      actions.update(node.id, { descriptionFormat: 'FIELDS', detailFields: rows, description: null }, rows.length ? `แปลงรายละเอียดเป็นตาราง ${rows.length} แถวแล้ว` : 'เปลี่ยนเป็นแบบตารางแล้ว')
+      actions.update(node.id, { descriptionFormat: 'FIELDS', detailFields: rows, description: null })
       return
     }
     if (node.detailFields.length > 0) {
@@ -54,7 +54,7 @@ export function TaskDetails({ node, canManage, canFill }: { node: TaskNode; canM
       })
       if (!ok) return
     }
-    actions.update(node.id, { descriptionFormat: 'TEXT', description: formatDetailFields(node.detailFields) || null, detailFields: [] }, 'เปลี่ยนเป็นแบบข้อความแล้ว')
+    actions.update(node.id, { descriptionFormat: 'TEXT', description: formatDetailFields(node.detailFields) || null, detailFields: [] })
   }
 
   return (
@@ -93,7 +93,7 @@ export function TaskDetails({ node, canManage, canFill }: { node: TaskNode; canM
         <AutosaveText
           id={id}
           serverValue={node.description ?? ''}
-          onSave={(text) => actions.update(node.id, { description: text || null }, 'บันทึกรายละเอียดแล้ว')}
+          onSave={(text) => actions.update(node.id, { description: text || null })}
           placeholder="เพิ่มรายละเอียด เช่น เอกสารที่ต้องเตรียม ผู้ติดต่อฝั่งห้าง หรือเงื่อนไขพิเศษ (บันทึกอัตโนมัติเมื่อคลิกออก)"
           className="min-h-24 bg-background"
         />
@@ -126,7 +126,7 @@ function DetailTable({ node, canManage, canFill, confirm }: { node: TaskNode; ca
   const { actions } = useTreeEnv()
   const fields = node.detailFields
 
-  const update = (patch: UpdateTaskInput, message?: string) => actions.update(node.id, patch, message)
+  const update = (patch: UpdateTaskInput) => actions.update(node.id, patch)
   const move = (index: number, delta: number) => {
     const next = [...fields]
     const [row] = next.splice(index, 1)
@@ -143,7 +143,7 @@ function DetailTable({ node, canManage, canFill, confirm }: { node: TaskNode; ca
       })
       if (!ok) return
     }
-    update({ detailRemove: [field.id] }, 'ลบแถวแล้ว')
+    update({ detailRemove: [field.id] })
   }
   // Appended on the server to the latest rows, so quick successive adds never overwrite each other.
   const add = (rows: { label: string; value: string }[]) => update({ detailAppend: rows.map((r) => ({ id: uuid(), ...r })) })

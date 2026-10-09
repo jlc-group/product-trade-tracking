@@ -1,7 +1,6 @@
 import { advanceDateError, diffDays, formatQty, type ISODate, type ProductionAdvanceInput } from '@flowtrade/shared'
 import { TriangleAlertIcon } from 'lucide-react'
 import { useId, useState, type FormEvent } from 'react'
-import { toast } from 'sonner'
 import { DateField } from '@/components/common/date-field'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -82,8 +81,6 @@ function AdvanceForm({ model, to, initialIds, onDone }: { model: ProductionModel
     const input: ProductionAdvanceInput = { productIds: rows.map((r) => r.productId), from, date, ...both }
     try {
       await advance.mutateAsync(input)
-      const n = rows.length
-      toast.success(to === 'DELIVERED' ? `บันทึกส่งแล้ว ${n} SKU` : alsoDeliver ? `บันทึกผลิตเสร็จและส่งแล้ว ${n} SKU` : `บันทึกผลิตเสร็จ ${n} SKU แล้ว`)
       onDone()
     } catch (error) {
       // already toasted by the hook

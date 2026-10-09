@@ -1,11 +1,9 @@
 import type { ISODate } from '@flowtrade/shared'
 import { useId, useState, type FormEvent } from 'react'
-import { toast } from 'sonner'
 import { DateField } from '@/components/common/date-field'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { sameSet } from '@/features/proposal-detail/utils'
-import { formatDate } from '@/lib/format'
 import { DialogActions, EventKindBadge, Field, GoneNotice, PeoplePicker, PICKER_HINT } from './dialog-parts'
 import { editDescription, editTarget, fieldAria, hasErrors, proposalLine, useHeldWhileClosed } from './dialog-utils'
 import { useEditEvent, useScheduleTrack } from './hooks'
@@ -86,10 +84,8 @@ function ScheduleForm({
     try {
       if (target && patch) {
         await edit.mutateAsync({ trackId: view.track.id, targetEventId: target.id, patch })
-        toast.success('บันทึกการแก้ไขแล้ว')
       } else {
         await schedule.mutateAsync({ trackId: view.track.id, meetingDate, presenterIds, contactName: contact })
-        toast.success('บันทึกนัดแล้ว', { description: `${view.store.name} · ${meetingDate ? `นัด ${formatDate(meetingDate)}` : 'ยังไม่ได้นัด'}` })
       }
       onDone()
     } catch {

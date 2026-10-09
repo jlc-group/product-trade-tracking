@@ -1,8 +1,7 @@
-import { diffDays, earliestOnTimeLaunch, isLaunchDate, LAUNCH_DAY_OF_MONTH, prepStartOf, storeNamesLabel, type ISODate } from '@flowtrade/shared'
+import { diffDays, earliestOnTimeLaunch, isLaunchDate, LAUNCH_DAY_OF_MONTH, storeNamesLabel, type ISODate } from '@flowtrade/shared'
 import { Loader2Icon } from 'lucide-react'
 import { useId, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router'
-import { toast } from 'sonner'
 import type { ProposalDetail } from '@/api'
 import { useDuplicateProposal, useStores } from '@/api/hooks'
 import { LaunchMonthPicker } from '@/components/common/launch-month-picker'
@@ -10,7 +9,7 @@ import { StoreChecklist } from '@/components/common/store-checklist'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatDate, today } from '@/lib/format'
+import { today } from '@/lib/format'
 import { LaunchCompare } from './launch-summary'
 import { launchWord, shiftLabel, storeWord } from './utils'
 
@@ -55,9 +54,6 @@ function DuplicateForm({ proposal, onDone }: { proposal: ProposalDetail; onDone:
     if (picked.length === 0 || !date) return
     try {
       const copy = await duplicate.mutateAsync({ id: proposal.id, storeIds: picked.map((s) => s.id), targetDate: date })
-      toast.success(`สร้าง ${copy.code} สำหรับ ${pickedLabel} แล้ว`, {
-        description: `${word} ${formatDate(date, { long: true })} · เริ่มเตรียม ${formatDate(prepStartOf(date), { long: true })} — สถานะเริ่มต้นเป็น "ร่าง" ตรวจวันที่ของงาน แล้วเปลี่ยนเป็น "กำลังดำเนินการ" เมื่อพร้อม`,
-      })
       onDone()
       navigate(`/proposals/${copy.id}`)
     } catch {

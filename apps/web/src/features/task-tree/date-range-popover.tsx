@@ -1,4 +1,4 @@
-import { isOverdue, type ISODate, type TaskNode } from '@flowtrade/shared'
+import { isOverdue, TASK_DATES_ADMIN_ONLY, type ISODate, type TaskNode } from '@flowtrade/shared'
 import { CalendarPlusIcon, TriangleAlertIcon } from 'lucide-react'
 import { useId, useState } from 'react'
 import { DateField } from '@/components/common/date-field'
@@ -77,7 +77,7 @@ function SpanSummary({ task, span }: { task: DateRangeProps['task']; span: numbe
   )
 }
 
-/** Date chip in a row; opens the pickers when the user may edit dates. */
+/** Date chip in a row; opens the pickers only for Admin (dates of an existing task are Admin-only). */
 export function DateRangePopover({ editable, className, ...props }: DateRangeProps & { editable: boolean; className?: string }) {
   const [open, setOpen] = useState(false)
   const { task } = props
@@ -90,7 +90,7 @@ export function DateRangePopover({ editable, className, ...props }: DateRangePro
   if (!editable) {
     if (!hasDates) return null
     return (
-      <span className={cn('inline-flex items-center gap-1', className)} title={formatDateRange(task.startDate, task.dueDate)}>
+      <span className={cn('inline-flex items-center gap-1', className)} title={`${formatDateRange(task.startDate, task.dueDate)}\n${TASK_DATES_ADMIN_ONLY}`}>
         {chip}
         {warn}
       </span>

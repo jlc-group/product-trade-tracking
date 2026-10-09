@@ -213,7 +213,8 @@ export interface ActivityLog {
   createdAt: ISODateTime
 }
 
-export type NotificationType = 'TASK_ASSIGNED' | 'TASK_DUE_SOON' | 'TASK_OVERDUE' | 'PROPOSAL_STATUS' | 'COMMENT'
+/** ACTIVITY = someone else's logged movement (ADMIN / MANAGER: every one; others: movements on tasks assigned to them). */
+export type NotificationType = 'TASK_ASSIGNED' | 'TASK_DUE_SOON' | 'TASK_OVERDUE' | 'PROPOSAL_STATUS' | 'COMMENT' | 'ACTIVITY'
 
 export interface AppNotification {
   id: string

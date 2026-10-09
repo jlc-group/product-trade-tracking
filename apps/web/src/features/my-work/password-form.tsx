@@ -1,5 +1,5 @@
 import type { User } from '@flowtrade/shared'
-import { CheckIcon, EyeIcon, EyeOffIcon, KeyRoundIcon, Loader2Icon } from 'lucide-react'
+import { CheckIcon, CircleCheckIcon, EyeIcon, EyeOffIcon, KeyRoundIcon, Loader2Icon } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { errorMessage, useChangePassword } from '@/api/hooks'
 import { Button } from '@/components/ui/button'
@@ -130,6 +130,7 @@ function validate(v: Values): Partial<Record<Field, string>> {
 /** Current / new / confirm password form with a strength hint. Used by Settings and the forced change-password page. */
 export function PasswordChangeForm({
   onSuccess,
+  successNote,
   idPrefix = 'pw',
   submitLabel = 'บันทึกรหัสผ่านใหม่',
   currentLabel = 'รหัสผ่านปัจจุบัน',
@@ -138,7 +139,9 @@ export function PasswordChangeForm({
   className,
   submitClassName,
 }: {
-  onSuccess: (user: User) => void
+  onSuccess?: (user: User) => void
+  /** Shown under the form after a successful change (no toasts for success), until the user types again. */
+  successNote?: string
   idPrefix?: string
   submitLabel?: string
   currentLabel?: string
@@ -152,10 +155,12 @@ export function PasswordChangeForm({
   const [values, setValues] = useState<Values>(EMPTY)
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({})
   const [submitted, setSubmitted] = useState(false)
+  const [changed, setChanged] = useState(false)
 
   const set = (field: Field) => (value: string) => {
     const next = { ...values, [field]: value }
     setValues(next)
+    setChanged(false)
     // After the first submit, re-validate as the user types so errors clear as soon as they're fixed.
     if (submitted) setErrors(validate(next))
     else if (errors[field]) setErrors((e) => ({ ...e, [field]: undefined }))
@@ -164,6 +169,7 @@ export function PasswordChangeForm({
   const submit = (e: FormEvent) => {
     e.preventDefault()
     setSubmitted(true)
+    setChanged(false)
     const found = validate(values)
     setErrors(found)
     if (Object.keys(found).length > 0) return
@@ -174,7 +180,8 @@ export function PasswordChangeForm({
           setValues(EMPTY)
           setErrors({})
           setSubmitted(false)
-          onSuccess(user)
+          setChanged(true)
+          onSuccess?.(user)
         },
         onError: (err) => {
           const message = errorMessage(err)
@@ -229,6 +236,17 @@ export function PasswordChangeForm({
         {change.isPending ? <Loader2Icon className="animate-spin" /> : <KeyRoundIcon />}
         {change.isPending ? 'กำลังบันทึก…' : submitLabel}
       </Button>
+      {successNote && (
+        // Always mounted so screen readers announce the line when it appears.
+        <p role="status" className={cn('flex items-start gap-1.5 text-sm font-medium text-success', !changed && 'sr-only')}>
+          {changed && (
+            <>
+              <CircleCheckIcon className="mt-0.5 size-4 shrink-0" aria-hidden />
+              {successNote}
+            </>
+          )}
+        </p>
+      )}
     </form>
   )
 }

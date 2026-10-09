@@ -81,7 +81,6 @@ export function ManufacturerPicker({ id, value, onChange, known = [], invalid, '
     try {
       const m = await create.mutateAsync({ name })
       setCreated(m)
-      toast.success(`เพิ่มบริษัท “${m.name}” แล้ว และเลือกไว้ให้เรียบร้อย`)
       pick(m.id)
     } catch (error) {
       // A name problem (duplicate, also of a deactivated one) stays here under the search box; anything else is a toast.

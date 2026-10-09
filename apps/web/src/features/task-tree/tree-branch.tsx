@@ -1,4 +1,4 @@
-import type { TaskNode } from '@flowtrade/shared'
+import { canManageTask, type TaskNode } from '@flowtrade/shared'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { memo, useMemo } from 'react'
@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { InlineAdd } from './inline-add'
 import { TaskRow } from './task-row'
 import { useTreeEnv, useTreeView } from './tree-context'
+import { useTaskRights } from './task-rights'
 import { parentKeyOf } from './tree-utils'
 
 interface TreeBranchProps {
@@ -16,12 +17,13 @@ interface TreeBranchProps {
 
 /** One sibling group: its sortable rows (each with its own subtree) and the inline "+ add" row. */
 export const TreeBranch = memo(function TreeBranch({ nodes, parent, depth }: TreeBranchProps) {
-  const { canManage, dragEnabled, actions } = useTreeEnv()
+  const { me, proposal, dragEnabled, actions } = useTreeEnv()
   const { filter, addingKey } = useTreeView()
   const visible = useMemo(() => (filter ? nodes.filter((n) => filter.visible.has(n.id)) : nodes), [nodes, filter])
   const ids = useMemo(() => visible.map((n) => n.id), [visible])
   const groupKey = parentKeyOf(parent?.id ?? null)
-  const showAdd = !!parent && canManage && !filter && parent.level < 3 && (nodes.length > 0 || addingKey === parent.id)
+  // Sub tasks go only under a task this user may manage (another department's task is read-only).
+  const showAdd = !!parent && !filter && parent.level < 3 && (nodes.length > 0 || addingKey === parent.id) && canManageTask(me, proposal, parent)
 
   return (
     <>
@@ -59,15 +61,18 @@ interface SortableTaskItemProps {
 const SortableTaskItem = memo(function SortableTaskItem({ node, parent, depth, index, count, groupKey }: SortableTaskItemProps) {
   const { dragEnabled } = useTreeEnv()
   const view = useTreeView()
+  const rights = useTaskRights(node)
+  // Same rule as the API's reorder: the task itself must be editable.
+  const draggable = dragEnabled && rights.structure.reorder
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
     id: node.id,
     data: { groupKey },
     // Only siblings are drop targets while something is being dragged.
-    disabled: { draggable: !dragEnabled, droppable: view.dragGroup !== null && view.dragGroup !== groupKey },
+    disabled: { draggable: !draggable, droppable: view.dragGroup !== null && view.dragGroup !== groupKey },
   })
   const expanded = view.isExpanded(node.id)
   const showChildren = expanded && (node.children.length > 0 || view.addingKey === node.id)
-  const handle = useMemo(() => (dragEnabled ? { setActivatorNodeRef, attributes, listeners } : null), [dragEnabled, setActivatorNodeRef, attributes, listeners])
+  const handle = useMemo(() => (draggable ? { setActivatorNodeRef, attributes, listeners } : null), [draggable, setActivatorNodeRef, attributes, listeners])
 
   return (
     <div
@@ -89,6 +94,8 @@ const SortableTaskItem = memo(function SortableTaskItem({ node, parent, depth, i
         siblingCount={count}
         reorderable={!view.filter}
         handle={handle}
+        handleSpace={dragEnabled}
+        rights={rights}
       />
       {showChildren && <TreeBranch nodes={node.children} parent={node} depth={depth + 1} />}
     </div>

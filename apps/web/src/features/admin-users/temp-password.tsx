@@ -31,12 +31,8 @@ export function TempPasswordPanel({ issued }: { issued: IssuedPassword }) {
       what === 'password'
         ? issued.tempPassword
         : [`เข้าสู่ระบบ ${APP_NAME} ที่ ${window.location.origin}/login`, `${issued.user.username ? 'ชื่อผู้ใช้' : 'อีเมล'}: ${signInName(issued.user)}`, `รหัสผ่านชั่วคราว: ${issued.tempPassword}`, 'ระบบจะให้ตั้งรหัสผ่านใหม่เมื่อเข้าสู่ระบบครั้งแรก'].join('\n')
-    if (await copyText(text)) {
-      setCopied(what)
-      toast.success(what === 'password' ? 'คัดลอกรหัสผ่านแล้ว' : 'คัดลอกข้อมูลเข้าสู่ระบบแล้ว — วางส่งให้ผู้ใช้ได้เลย')
-    } else {
-      toast.error('คัดลอกอัตโนมัติไม่สำเร็จ — เลือกข้อความในกล่องแล้วกด Ctrl+C แทน')
-    }
+    if (await copyText(text)) setCopied(what)
+    else toast.error('คัดลอกอัตโนมัติไม่สำเร็จ — เลือกข้อความในกล่องแล้วกด Ctrl+C แทน')
   }
 
   return (

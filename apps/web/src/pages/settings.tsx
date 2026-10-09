@@ -1,7 +1,6 @@
 import { ROLE_LABEL, type Role, signInName } from '@flowtrade/shared'
 import { CalendarDaysIcon, InfoIcon, KeyRoundIcon, UserRoundIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { toast } from 'sonner'
 import { useCurrentUser } from '@/auth/auth'
 import { PageHeader } from '@/components/common/misc'
 import { UserAvatar } from '@/components/common/user-avatar'
@@ -116,8 +115,8 @@ export default function SettingsPage() {
             <PasswordChangeForm
               idPrefix="settings-pw"
               username={signInName(user) || undefined}
+              successNote="เปลี่ยนรหัสผ่านเรียบร้อยแล้ว — ครั้งหน้าเข้าสู่ระบบด้วยรหัสผ่านใหม่"
               className="max-w-md"
-              onSuccess={() => toast.success('เปลี่ยนรหัสผ่านเรียบร้อยแล้ว', { description: 'ครั้งหน้าเข้าสู่ระบบด้วยรหัสผ่านใหม่' })}
             />
           </SettingsCard>
         </div>

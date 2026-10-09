@@ -1,7 +1,6 @@
 import { addDays, diffDays, type ISODate } from '@flowtrade/shared'
 import { ChevronRightIcon, InfoIcon, SendIcon, TriangleAlertIcon } from 'lucide-react'
 import { useId, useRef, useState, type FormEvent } from 'react'
-import { toast } from 'sonner'
 import { DateField } from '@/components/common/date-field'
 import { StoreChecklist } from '@/components/common/store-checklist'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -20,7 +19,6 @@ import { useEditEvent, useRecordStep } from './hooks'
 import {
   appendRequestChip,
   buildStepEvents,
-  buildViews,
   CHOICE_STAGE,
   choiceForEvent,
   emptyStepForm,
@@ -41,7 +39,6 @@ import {
   stepFormFromEvent,
   stepPatch,
   storeNamesText,
-  summarize,
   toStepErrors,
   TONE_SOFT,
   validateEdit,
@@ -187,15 +184,7 @@ function NewStepForm({
     if (hasErrors(errors)) return
     setSaving({ view, others })
     try {
-      const data = await record.mutateAsync({ trackIds: targets.map((v) => v.track.id), expectStage, events: buildStepEvents(mode, choice, stepForm, productIds) })
-      if (choice === 'pending') toast.success('บันทึกว่านำเสนอแล้ว', { description: `${names} · รอ Buyer พิจารณา` })
-      else if (choice === 'passed') {
-        const s = summarize(buildViews(data, model.proposal), model.proposal)
-        toast.success(`บันทึกว่า ${names} ผ่านแล้ว`, { description: `ได้ผลแล้ว ${s.finalCount} จาก ${s.storesTotal} ${word}` })
-      } else if (choice === 'needsInfo')
-        toast.success('บันทึกคำขอข้อมูลเพิ่มแล้ว', { description: `${names} · ${form.dueDate ? `ต้องส่งภายใน ${formatDate(form.dueDate)}` : 'ยังไม่กำหนดวันส่ง'}` })
-      else if (choice === 'rejected') toast.success(`บันทึกว่า ${names} ไม่ผ่านแล้ว`, { description: form.reason ? rejectReasonLabel(form.reason, word) : undefined })
-      else toast.success('บันทึกการส่งข้อมูลเพิ่มแล้ว', { description: `${names} กลับไปรอพิจารณา (รอบที่ ${view.round + 1})` })
+      await record.mutateAsync({ trackIds: targets.map((v) => v.track.id), expectStage, events: buildStepEvents(mode, choice, stepForm, productIds) })
       onDone()
     } catch {
       // error already toasted by the hook
@@ -311,7 +300,6 @@ function EditStepForm({ model, view, item, onDone }: { model: PresentationModel;
     if (unchanged || hasErrors(errors)) return
     try {
       await edit.mutateAsync({ trackId: view.track.id, targetEventId: target.id, patch })
-      toast.success('บันทึกการแก้ไขแล้ว')
       onDone()
     } catch {
       // error already toasted by the hook

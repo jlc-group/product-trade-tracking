@@ -199,7 +199,7 @@ export default function AdminUsersPage() {
         })
         if (!ok) return
       }
-      updateUser.mutate({ id: u.id, patch: { role } }, { onSuccess: () => toast.success(`${u.name} เป็น ${ROLE_LABEL[role]} แล้ว`) })
+      updateUser.mutate({ id: u.id, patch: { role } })
     },
     onActiveChange: async (u, isActive) => {
       if (!isActive) {
@@ -215,11 +215,7 @@ export default function AdminUsersPage() {
         { id: u.id, isActive },
         {
           onSuccess: ({ openTasks }) => {
-            if (!isActive && openTasks > 0) {
-              toast.warning(`ปิดการใช้งาน ${u.name} แล้ว`, { description: `มีงานค้าง ${openTasks} งาน ควรมอบหมายให้คนอื่น`, duration: 8000 })
-            } else {
-              toast.success(isActive ? `เปิดใช้งาน ${u.name} แล้ว — เข้าสู่ระบบได้ตามปกติ` : `ปิดการใช้งาน ${u.name} แล้ว`)
-            }
+            if (!isActive && openTasks > 0) toast.warning(`ปิดการใช้งาน ${u.name} แล้ว`, { description: `มีงานค้าง ${openTasks} งาน ควรมอบหมายให้คนอื่น`, duration: 8000 })
           },
         },
       )

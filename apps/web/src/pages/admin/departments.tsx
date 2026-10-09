@@ -2,7 +2,6 @@ import type { Department } from '@flowtrade/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { Building2Icon, GripVerticalIcon, PlusIcon, RotateCwIcon, TriangleAlertIcon } from 'lucide-react'
 import { useRef } from 'react'
-import { toast } from 'sonner'
 import { departmentMutations, qk, useDepartments, useDepartmentUsage, useReorderDepartments } from '@/api/hooks'
 import { EmptyState, PageHeader, useConfirm } from '@/components/common/misc'
 import { Button } from '@/components/ui/button'
@@ -35,7 +34,6 @@ export default function AdminDepartmentsPage() {
 
   const handleCreate = async (name: string) => {
     await create.mutateAsync({ name })
-    toast.success(`เพิ่มแผนก “${name}” แล้ว`, { description: 'ผู้ใช้เลือกแผนกนี้ได้ทันที' })
   }
 
   const handleRename = async (d: Department, name: string) => {
@@ -43,19 +41,14 @@ export default function AdminDepartmentsPage() {
     // The server renames the department on every user, so user lists and the signed-in user's menu refresh too.
     void qc.invalidateQueries({ queryKey: ['users'] })
     void qc.invalidateQueries({ queryKey: qk.me })
-    const users = usersOf(d.id)
-    toast.success(`เปลี่ยนชื่อ “${d.name}” เป็น “${name}” แล้ว`, users ? { description: `อัปเดตแผนกของผู้ใช้ ${users} คนให้อัตโนมัติ` } : undefined)
   }
 
   const handleSetActive = async (d: Department, isActive: boolean) => {
     await update.mutateAsync({ id: d.id, patch: { isActive } })
-    if (isActive) toast.success(`เปิดใช้งาน ${d.name} แล้ว`, { description: 'กลับมาให้เลือกเป็นแผนกของผู้ใช้ได้ตามปกติ' })
-    else toast.success(`ปิดใช้งาน ${d.name} แล้ว`, { description: 'จะไม่แสดงให้เลือกตอนเพิ่มหรือแก้ไขผู้ใช้ — ผู้ใช้ที่อยู่ในแผนกนี้ยังอยู่เหมือนเดิม' })
   }
 
   const handleDelete = async (d: Department) => {
     await remove.mutateAsync(d.id)
-    toast.success(`ลบแผนก “${d.name}” แล้ว`)
   }
 
   const renderList = () => {

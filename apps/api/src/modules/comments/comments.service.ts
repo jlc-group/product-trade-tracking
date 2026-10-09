@@ -44,12 +44,11 @@ export class CommentsService {
       const text = body.trim()
       if (!text) throw invalid('กรุณาพิมพ์ข้อความ', { body: 'กรุณาพิมพ์ข้อความ' })
       const row = await tx.comment.create({ data: { proposalId: proposal.id, taskId: task.id, authorId: user.id, body: text } })
-      await this.activity.notify(
-        tx,
-        [...task.assigneeIds, proposal.ownerId],
-        { type: 'COMMENT', title: `${user.name} แสดงความคิดเห็น`, body: `${task.title}: ${text.slice(0, 80)}`, link: `/proposals/${proposal.id}?task=${task.id}` },
-        user.id,
-      )
+      const notice = { type: 'COMMENT' as const, title: `${user.name} แสดงความคิดเห็น`, body: `${task.title}: ${text.slice(0, 80)}`, link: `/proposals/${proposal.id}?task=${task.id}` }
+      const direct = [...task.assigneeIds, proposal.ownerId]
+      await this.activity.notify(tx, direct, notice, user.id)
+      // Comments aren't logged, so ADMIN / MANAGER (who see every movement) get the same notice — once, never the author.
+      await this.activity.notifyOversight(tx, notice, [user.id, ...direct])
       return { ...toComment(row), author: user }
     })
   }

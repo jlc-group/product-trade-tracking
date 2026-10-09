@@ -77,7 +77,7 @@ export function ProductionTab({ proposal, onGoToPresentation }: Props) {
   const closeDialog = () => setDialog((prev) => (prev ? { ...prev, open: false } : prev))
 
   function runConfirm(check: ConfirmCheck) {
-    if (!check.open) return void toast.info(check.text)
+    if (!check.open) return void toast.warning(check.text)
     // The button waits (spinner) until the dialog's contact defaults can be computed.
     if (model.peopleReady) openDialog({ kind: 'confirm' })
   }
@@ -94,7 +94,7 @@ export function ProductionTab({ proposal, onGoToPresentation }: Props) {
   const noticeText = deepCheck && !deepCheck.open ? deepCheck.text : null
   useEffect(() => {
     if (!deepKey) return
-    if (noticeText) toast.info(noticeText, { id: 'production-deep-link' })
+    if (noticeText) toast.warning(noticeText, { id: 'production-deep-link' })
     setParams(
       (prev) => {
         const p = new URLSearchParams(prev)
@@ -128,7 +128,6 @@ export function ProductionTab({ proposal, onGoToPresentation }: Props) {
     if (!ok) return
     try {
       await back.mutateAsync({ productId, from })
-      toast.success(`ย้อน ${sku} กลับเป็น “${productionStatusLabel(to)}” แล้ว`)
     } catch {
       // error already toasted by the hook
     }
@@ -147,7 +146,6 @@ export function ProductionTab({ proposal, onGoToPresentation }: Props) {
     if (!ok) return
     try {
       await restore.mutateAsync({ productId })
-      toast.success(`กู้คืน ${sku} แล้ว`)
     } catch {
       // error already toasted by the hook
     }
@@ -161,7 +159,6 @@ export function ProductionTab({ proposal, onGoToPresentation }: Props) {
     if (!ok) return
     try {
       await keep.mutateAsync({ productId, storeIds: row.passedStores.map((s) => s.store.id) })
-      toast.success(`บันทึก “${copy.button}” ของ ${row.product.sku} แล้ว`)
     } catch {
       // error already toasted by the hook
     }

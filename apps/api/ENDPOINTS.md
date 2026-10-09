@@ -37,6 +37,20 @@ Validation and error messages are Thai and are shown to users as-is. The web cli
   log (entity type `MANUFACTURER`, actions `manufacturer.create|update|delete|reorder`).
 - **Responsible department**: `Task.responsible` / `TaskTemplateItem.responsible` / plan `responsible` is free text
   (e.g. `NPD`, `Graphics`; suggestions in `DEFAULT_DEPARTMENTS`) — trimmed, `''` → `null`, max 100 characters.
+- **Department lock on tasks** (`packages/shared/src/permissions.ts`): a task with a `responsible` department can be
+  changed only by ADMIN (`task.department.any`) or by people of that department (`sameDepartment(user.department,
+  task.responsible)`: trimmed, spaces collapsed, case-insensitive, blank never matches) who also have the usual right —
+  the project team / `task.manage.any` for full edits (`canManageTask`), the task's assignee for assignee-level edits
+  (`canToggleTask`). Everyone else who can see the task (incl. the project owner and MANAGER of another department) only
+  views it and can still comment; their writes get 403 with `taskLockReason` (`เฉพาะแผนก X แก้ไขงานนี้ได้ — …`). Tasks
+  without a department keep the team rules. Tree changes (`taskStructureRights` / `moveTaskLockReason`, shared with the
+  web): a reorder among the same siblings needs the right on the task only; delete also on every sub task; copy also on
+  every sub task and the parent (the copy becomes its child); a move to another parent also on every sub task, the
+  current parent and the target parent (403 names the first locked task).
+- **Task dates are ADMIN-only once a task exists** (`canEditTaskDates`): setting or changing `startDate` / `dueDate` of an
+  existing task needs `task.dates.edit` (ADMIN) — User and Manager never, not even for a task without dates → else 403
+  `TASK_DATES_ADMIN_ONLY`; re-sending the stored value is fine. `POST /tasks` may still set dates, and
+  `POST /proposals/:id/target-date` (with `shiftTasks` it shifts every open task) is for the project's owner or ADMIN only (`canRescheduleProposal`).
 - **Task details**: `Task.descriptionFormat` is `TEXT` (details = `description`) or `FIELDS` (details = `detailFields`,
   rows of `{ id, label, value }`; `value: ''` = not filled yet; max 100 rows, label 1–200, value ≤ 2000 characters, trimmed).
   `PATCH /tasks/:id` changes rows with `detailFields` (replace all), `detailRemove` (ids; gone ids ignored),
@@ -204,6 +218,19 @@ Validation and error messages are Thai and are shown to users as-is. The web cli
   org-wide `late` / `atRisk` projects (IN_PROGRESS, plus COMPLETED ones with a production alarm), merged overdue
   buyer steps and overdue tasks; ADMIN / MANAGER
   also get buyer steps naming them on proposals they are not involved in. Every list is personal for every role.
+- **Notifications (the bell)** (`ActivityService`, same transaction as the change): every logged movement also becomes
+  an `ACTIVITY` notification for every active ADMIN / MANAGER and, when it concerns a task (`entityType TASK`, or the
+  `taskId` option), for that task's active assignees, plus the log's `extraRecipientIds` (active users: the assignees of
+  a deleted task and its sub tasks, and people taken off a task) — never the actor. `title` = the actor's nickname (else name)
+  `· <proposal code>`, `body` = the log summary, `link` = `/proposals/:id` (`?task=` while the task exists, `?tab=present`
+  / `?tab=production` for those actions) or the master-data page (`/admin/stores|shelf-types|products|manufacturers|
+  templates|users|departments`; `/admin/activity` for a reader without that page's permission; null for a deleted
+  proposal). Only repeated edits of one task merge: a `task.update` (link with `?task=`) goes into the recipient's
+  unread `ACTIVITY` row of an earlier `task.update` with the same title and link from the last 10 minutes (new summary,
+  moves to the top); every other movement adds a row. Direct notices (`TASK_ASSIGNED`, `COMMENT`, `PROPOSAL_STATUS`) are kept;
+  within one transaction a person who gets a direct notice for the same page (path, query ignored) gets no `ACTIVITY`
+  row for it. Comments are not logged: their notice (assignees + owner) also goes to every active ADMIN / MANAGER,
+  once each, never the author.
 - **Query strings**: booleans `true|false`; id lists comma-separated (`excluded=a,b`).
 - **Empty results**: an endpoint that returns `null` answers `200` with an empty body (the client maps it to `null`).
 - IDs are UUIDs; a malformed id answers 404.
@@ -225,7 +252,7 @@ Validation and error messages are Thai and are shown to users as-is. The web cli
 | GET | /departments | signed in; `includeInactive=true` needs `department.manage` (else 403) | `?includeInactive=true` | `Department[]` (sortOrder) — active only by default |
 | GET | /departments/usage | `department.manage` | — | `Record<departmentId, userCount>` (every department, 0 when unused; active and inactive users) |
 | POST | /departments | `department.manage` | `DepartmentInput` — `name` trimmed, 1–100 chars; duplicate ignoring case → 422 `มีแผนกชื่อนี้อยู่แล้ว` | `Department` (added last) |
-| PATCH | /departments/:id | `department.manage` | `{ name?, isActive? }` — a rename renames it on every user (FK cascade); inactive = kept by current users, not assignable | `Department` |
+| PATCH | /departments/:id | `department.manage` | `{ name?, isActive? }` — a rename renames it on every user (FK cascade) and, in the same transaction, on every task and template step whose `responsible` matches the old name (`sameDepartment`; counts in the activity note); inactive = kept by current users, not assignable | `Department` |
 | DELETE | /departments/:id | `department.manage` (409 `IN_USE` `ลบไม่ได้ เพราะมีผู้ใช้ N คนอยู่ในแผนกนี้ — ปิดการใช้งานแทนได้` while any user has it) | — | `true` |
 | PUT | /departments/order | `department.manage` | `{ ids: string[] }` (sortOrder = index + 1, one transaction) | `true` |
 | GET | /manufacturers | signed in | `?includeInactive=true` (any signed-in user: the confirm dialog's picker loads it to show an inactive current value and the "ถูกปิดใช้งาน" hint for a typed inactive name) | `Manufacturer[]` (sortOrder) — active only by default |
@@ -262,19 +289,19 @@ Validation and error messages are Thai and are shown to users as-is. The web cli
 | POST | /proposals | `proposal.create` | `CreateProposalInput` — ONE proposal listed at every store in `storeIds` (same channel, one shared task list); no title → "<first product> +N → <stores>". `targetDate` must be the 15th and not before today (422). Plan / template `responsible` → each task's `responsible`; plan / template `fieldLabels` → the task starts as a table (`descriptionFormat: FIELDS`, one empty row per label), otherwise description stays null | `Proposal` |
 | PATCH | /proposals/:id | owner or `proposal.update.any` | `UpdateProposalInput` — a changed `storeIds` (min 1, same channel; new stores must be active) needs `proposal.stores.edit` = ADMIN only (403 `ห้างของโปรเจกต์ที่สร้างแล้ว แก้ไขได้เฉพาะ Admin เท่านั้น`); the same set in any order is ignored. Changing `productIds` / `storeIds` locks the proposal row, deletes production drafts / skips of SKUs taken out and sends the production owner notices (see *Production*) | `Proposal` |
 | POST | /proposals/:id/status | owner or `proposal.update.any` | `{ status }` | `Proposal` |
-| POST | /proposals/:id/target-date | owner or `proposal.update.any` | `{ targetDate, shiftTasks }` — `targetDate` must be the 15th (422) | `Proposal` |
+| POST | /proposals/:id/target-date | owner or `proposal.reschedule` (ADMIN) — a MANAGER or team member who is not the owner gets 403 `เลื่อนวันวางขายได้เฉพาะเจ้าของโปรเจกต์หรือ Admin` | `{ targetDate, shiftTasks }` — `targetDate` must be the 15th (422) | `Proposal` |
 | POST | /proposals/:id/duplicate | `proposal.create` + can view | `{ storeIds, targetDate }` — a new proposal for those stores (any of the channel, the source's included); `targetDate` must be the 15th (422); tasks keep `responsible` and the details table (values too) | `Proposal` |
 | DELETE | /proposals/:id | `proposal.delete.any`, or owner of a DRAFT; 409 `IN_USE` while a SKU is still confirmed for production — IN_PRODUCTION / PRODUCED / DELIVERED (`productionDeleteBlock`: `มีสินค้าที่ยืนยันผลิตอยู่ n SKU ลบไม่ได้ — ยกเลิกการผลิตทุก SKU …`); SKUs whose production was cancelled don't block an Admin (their production rows, events and orders cascade with the proposal), but anyone without `proposal.delete.any` gets 409 `IN_USE` `PRODUCTION_HISTORY_DELETE` (`โปรเจกต์นี้มีประวัติการผลิต — ลบได้เฉพาะ Admin …`) while any SKU was ever confirmed | — | `true` |
 | GET | /proposals/:id/tasks | can view | — | `Task[]` (flat) |
 | GET | /proposals/:id/comment-counts | can view | — | `Record<taskId, count>` |
 | GET | /proposals/:id/report | can view | — | `ProposalReport` — extras for the PDF export page: `users` the tasks refer to (assignees, completed by, created by; deactivated included), every task `comments` (oldest first), `lastActivity` = latest TASK activity per task id (absent when a task was never changed after creation) |
 | GET | /tasks/mine | signed in | `?status=open\|done\|all&due=overdue\|today\|week\|all&proposalId=` | `TaskWithContext[]` — every item has `countable` = a leaf task of an IN_PROGRESS proposal (see *Overdue*). `due=overdue\|today\|week` list countable tasks only (`week` = due today … today + 7); `due=all` lists everything (assigned parent tasks, DRAFT / ON_HOLD / COMPLETED proposals) |
-| POST | /tasks | member/owner or `task.manage.any` | `CreateTaskInput` (optional `responsible` department) | `Task` |
-| PATCH | /tasks/:id | managers; assignees may change description/dates/priority and fill `detailValues` only (not title, assignees, `responsible`, `descriptionFormat` or the table rows) | `UpdateTaskInput` (`responsible: null` or `''` clears it; table rows, see *Task details*; changes are noted in the activity log). A table edit re-applies the completion rules (see the toggle row): the task and its ancestors are ticked / re-opened to match, the editor becomes the completer, logged as `task.complete` / `task.reopen` `กรอกข้อมูลครบ — ทำเครื่องหมายเสร็จอัตโนมัติ: …` / `ข้อมูลไม่ครบ — เปิดงานอีกครั้งอัตโนมัติ: …` | `Task` |
-| POST | /tasks/:id/toggle | managers or the task's assignees | `{ isDone }` — only a task ticked by hand: one with neither a table (FIELDS with ≥ 1 row) nor sub tasks. Any other task is done exactly when its table is fully filled (if it has one) AND all its sub tasks are done (if any) — `deriveCompletion`, re-applied after every create / move / delete / duplicate / table edit; toggling it → 422 `autoCompletionHint` (`ติ๊กเสร็จอัตโนมัติเมื่อ…`) | `{ changed: Task[], progress, allDone }` |
-| POST | /tasks/:id/move | managers | `MoveTaskInput` | `Task[]` (whole proposal) |
-| POST | /tasks/:id/duplicate | managers | — | `Task` (copy of subtree root, `responsible`, `descriptionFormat` and `detailFields` copied) |
-| DELETE | /tasks/:id | managers | — | `{ removed: string[] }` |
+| POST | /tasks | member/owner or `task.manage.any`; with a `responsible` department only people of that department or ADMIN (403 `เพิ่มงานของแผนก X ได้เฉพาะคนในแผนก X หรือ Admin`; a sub task is judged by its own department) | `CreateTaskInput` (optional `responsible` department; dates allowed) | `Task` |
+| PATCH | /tasks/:id | `canManageTask` (department lock, see *Department lock on tasks*); the task's same-department assignees may change the description and fill `detailValues` only (not title, assignees, `responsible`, priority, `descriptionFormat` or the table rows); changed `startDate` / `dueDate` need ADMIN (`canEditTaskDates`; 403 `TASK_DATES_ADMIN_ONLY`). Assignees taken off the task get an `ACTIVITY` notice | `UpdateTaskInput` (`responsible: null` or `''` clears it; table rows, see *Task details*; changes are noted in the activity log). A table edit re-applies the completion rules (see the toggle row): the task and its ancestors are ticked / re-opened to match, the editor becomes the completer, logged as `task.complete` / `task.reopen` `กรอกข้อมูลครบ — ทำเครื่องหมายเสร็จอัตโนมัติ: …` / `ข้อมูลไม่ครบ — เปิดงานอีกครั้งอัตโนมัติ: …` | `Task` |
+| POST | /tasks/:id/toggle | `canToggleTask`: managers or the task's assignees, same department only (else 403 `taskLockReason`) | `{ isDone }` — only a task ticked by hand: one with neither a table (FIELDS with ≥ 1 row) nor sub tasks. Any other task is done exactly when its table is fully filled (if it has one) AND all its sub tasks are done (if any) — `deriveCompletion`, re-applied after every create / move / delete / duplicate / table edit; toggling it → 422 `autoCompletionHint` (`ติ๊กเสร็จอัตโนมัติเมื่อ…`) | `{ changed: Task[], progress, allDone }` |
+| POST | /tasks/:id/move | `moveTaskLockReason`: same parent (reorder) → `canManageTask` on the task; another parent → also every sub task, the current and the target parent | `MoveTaskInput` | `Task[]` (whole proposal) |
+| POST | /tasks/:id/duplicate | `canManageTask` on the task, every sub task copied and its parent | — | `Task` (copy of subtree root, `responsible`, `descriptionFormat` and `detailFields` copied) |
+| DELETE | /tasks/:id | `canManageTask` on the task and every sub task | — | `{ removed: string[] }` — the active assignees of every deleted task get an `ACTIVITY` notice |
 | GET | /tasks/:id/comments | can view | — | `CommentWithAuthor[]` |
 | POST | /tasks/:id/comments | can view | `{ body }` | `CommentWithAuthor` |
 | GET | /proposals/:id/presentation | can view | — | `PresentationData` (see *Presentation*) |
@@ -297,7 +324,7 @@ Validation and error messages are Thai and are shown to users as-is. The web cli
 | POST | /proposals/:id/production/items/:productId/keep | decide | `{ storeIds }` — the passing store ids the client showed; the row must need review and the ids must equal the current passing stores (else 409). Acknowledges them ("ผลิตต่อ" / "จำนวนเดิมใช้ได้") | `ProductionView` |
 | PATCH | /proposals/:id/production/orders/:orderId | decide (403 `แก้ข้อมูลใบสั่งผลิตได้เฉพาะเจ้าของโปรเจกต์หรือผู้จัดการ`) | `{ updatedAt, referenceNo?, manufacturerId?, mainContactId?, coContactIds?, startedOn?, productionDays? }` (≥ 1 field besides `updatedAt`, else 422 `ไม่มีข้อมูลที่จะแก้ไข`) — any SKU status, cancelled ones too. `updatedAt` = the order the client showed (409 `STALE` when it moved); an order of another proposal or already deleted → 404. The fields sent replace the current ones (an absent key keeps its value; `manufacturerId` / `mainContactId` sent as `null` or `''` → 422 `เลือกบริษัทรับผลิต` / `เลือกผู้ติดต่อหลัก`; a co-contact made the main contact leaves the co-contacts when `coContactIds` is not sent); `startedOn` / `productionDays` alone or together (`null` / `''` → 422 `เลือกวันที่เริ่มผลิต` / `กรอกระยะเวลาผลิต`), except on an order without a schedule yet (confirmed before schedules existed): sending one needs the other (the missing one → 422 as required). Only a changed value is checked: a new start within the bounds of the order's SKUs' passes and the launch, and not after the earliest produced / delivered date among them (422 `วันที่เริ่มผลิตต้องไม่หลังวันที่ผลิตเสร็จ (…)`); it becomes the `startedOn` of every SKU on the order. Same rules as confirm, except the current manufacturer may stay and each current contact may stay in the role they hold (a role change is checked like a new pick; refusals carry `fields` `mainContactId` / `coContactIds`). Nothing changed → no write; else one `ORDER` event per SKU of the order (ids and names, see *Production*), activity `production.order`, notices to people newly in a role | `ProductionView` |
 | GET | /activity | `activity.read.all`, or can view `proposalId` | `?proposalId=&limit=` | `ActivityWithActor[]` |
-| GET | /notifications | signed in | — | `AppNotification[]` (own, newest 50) |
+| GET | /notifications | signed in | — | `AppNotification[]` (own, newest first: the newest 50 plus every unread non-`ACTIVITY` notice (newest 50), deduped; see *Notifications*). Deletes the caller's read notifications older than 60 days first |
 | POST | /notifications/read | signed in | `{ id: string \| "all" }` | `true` |
 | GET | /dashboard/home | signed in | — | `HomeDashboard` (see *Home dashboard*) |
 | GET | /dashboard/badge | signed in | — | `NavBadges` — `{ overdueTasks }`: my overdue tasks (*Overdue*), one statement; equals the agenda's overdue task rows and `/tasks/mine?due=overdue` |

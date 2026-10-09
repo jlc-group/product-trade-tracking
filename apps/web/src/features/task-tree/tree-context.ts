@@ -1,4 +1,4 @@
-import type { TaskNode, User } from '@flowtrade/shared'
+import type { TaskNode, TaskStructureRights, User } from '@flowtrade/shared'
 import { createContext, useContext } from 'react'
 import type { ProposalDetail, UpdateTaskInput } from '@/api'
 
@@ -6,7 +6,7 @@ import type { ProposalDetail, UpdateTaskInput } from '@/api'
 export interface TreeActions {
   openTask: (id: string, opts?: { focusComments?: boolean }) => void
   toggle: (node: TaskNode, isDone: boolean) => void
-  update: (id: string, patch: UpdateTaskInput, successMessage?: string) => void
+  update: (id: string, patch: UpdateTaskInput) => void
   toggleExpanded: (id: string) => void
   startAdd: (parentId: string | null) => void
   stopAdd: () => void
@@ -22,13 +22,16 @@ export interface TreeActions {
 export interface TreeEnv {
   me: User
   proposal: ProposalDetail
-  canManage: boolean
+  /** May add tasks to this proposal (team / MANAGER / ADMIN). Rights on each existing task: useTaskRights. */
+  canAddTasks: boolean
   cancelled: boolean
   usersById: Map<string, User>
   /** Department suggestions: the standard ones plus any already used in this proposal. */
   departments: string[]
-  /** Drag handles are shown (task managers, no filter active). */
+  /** The drag-handle column is shown (task managers, no filter active); each row is draggable only if it may be reordered. */
   dragEnabled: boolean
+  /** Reorder / move / copy / delete rights per task id (keeps its identity while no right changes). */
+  structure: ReadonlyMap<string, TaskStructureRights>
   actions: TreeActions
 }
 

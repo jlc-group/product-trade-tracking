@@ -1,7 +1,6 @@
 import { can, canEditProposalStores, CHANNEL_TERMS, PROPOSAL_TITLE_MAX, type User } from '@flowtrade/shared'
 import { Loader2Icon, LockIcon, UserPlusIcon } from 'lucide-react'
 import { useId, useState, type FormEvent } from 'react'
-import { toast } from 'sonner'
 import type { ProposalDetail, UpdateProposalInput } from '@/api'
 import { useShelfTypes, useStores, useUpdateProposal, useUserLookup } from '@/api/hooks'
 import { useCurrentUser } from '@/auth/auth'
@@ -105,7 +104,6 @@ function EditForm({ proposal, onDone }: { proposal: ProposalDetail; onDone: () =
     if (canChangeOwner && ownerChanged) patch.ownerId = ownerId
     try {
       await update.mutateAsync({ id: proposal.id, patch })
-      toast.success('บันทึกการแก้ไขแล้ว')
       onDone()
     } catch {
       // error already toasted by the hook

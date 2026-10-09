@@ -1,9 +1,8 @@
 // Calendar entries in two densities: tiny cell items (month grid) and full rows (day panel / agenda).
-import { autoCompletionHint, canToggleTask, storeNamesLabel, type ISODate } from '@flowtrade/shared'
+import { autoCompletionHint, canToggleTask, storeNamesLabel, taskLockReason, type ISODate } from '@flowtrade/shared'
 import { CheckIcon } from 'lucide-react'
 import { useId, useState } from 'react'
 import { Link } from 'react-router'
-import { toast } from 'sonner'
 import { useToggleAnyTask } from '@/api/hooks'
 import type { ProposalListItem, TaskWithContext } from '@/api/types'
 import { useCurrentUser } from '@/auth/auth'
@@ -95,21 +94,14 @@ export function TaskRow({ item, className }: { item: TaskWithContext; className?
   const checked = pending && pending.base === task.isDone ? pending.value : task.isDone
   // A table (or sub tasks) decides this box: the system ticks it, never a click.
   const auto = item.completion !== 'manual'
+  // Department-aware: a task of another department is read-only here too.
   const allowed = canToggleTask(user, proposal, task) && !auto
+  const lockReason = taskLockReason(user, task)
+  const blockedHint = lockReason ?? (item.completion !== 'manual' ? autoCompletionHint(item.completion) : 'ทำเครื่องหมายได้เฉพาะผู้รับผิดชอบงานหรือทีมของโปรเจกต์')
 
   const onCheckedChange = (value: boolean) => {
     setPending({ value, base: task.isDone })
-    toggle.mutate(
-      { id: task.id, isDone: value, proposalId: proposal.id },
-      {
-        onSuccess: (res) => {
-          if (!value) toast.success(`เปิดงานอีกครั้ง: ${task.title}`)
-          else if (res.allDone) toast.success(`ทำเครื่องหมายเสร็จ: ${task.title}`, { description: `งานทุกข้อของ ${proposal.code} เสร็จครบแล้ว` })
-          else toast.success(`ทำเครื่องหมายเสร็จ: ${task.title}`)
-        },
-        onError: () => setPending(null),
-      },
-    )
+    toggle.mutate({ id: task.id, isDone: value, proposalId: proposal.id }, { onError: () => setPending(null) })
   }
 
   return (
@@ -119,7 +111,7 @@ export function TaskRow({ item, className }: { item: TaskWithContext; className?
           id={checkboxId}
           checked={checked}
           disabled={!allowed || toggle.isPending}
-          title={item.completion !== 'manual' ? autoCompletionHint(item.completion) : undefined}
+          title={allowed ? undefined : blockedHint}
           onCheckedChange={(v) => onCheckedChange(v === true)}
           className="size-[18px] data-checked:border-success data-checked:bg-success"
         />
@@ -146,7 +138,7 @@ export function TaskRow({ item, className }: { item: TaskWithContext; className?
           </span>
           <DueChip startDate={task.startDate} dueDate={task.dueDate} isDone={checked} />
         </div>
-        {!allowed && <p className="text-xs text-muted-foreground">ทำเครื่องหมายได้เฉพาะผู้รับผิดชอบงานหรือทีมของโปรเจกต์</p>}
+        {!allowed && <p className="text-xs text-muted-foreground">{blockedHint}</p>}
       </div>
     </div>
   )

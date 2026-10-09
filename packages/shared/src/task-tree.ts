@@ -29,6 +29,24 @@ export function isDueWithin(task: Pick<Task, 'isDone' | 'dueDate'>, today: ISODa
   return !task.isDone && !!task.dueDate && task.dueDate >= today && task.dueDate <= addDays(today, days)
 }
 
+/** Red starts this many days before a task's due date. */
+export const TIMELINE_RED_DAYS = 2
+export const TIMELINE_LATE_NOTE = 'จัดการงานล่าช้า ส่งผลต่อการเลื่อนวันขาย'
+/** 'active' = yellow, 'due-soon' and 'late' = red ('late' also shows TIMELINE_LATE_NOTE); 'none' = no colour. */
+export type TimelineTone = 'none' | 'active' | 'due-soon' | 'late'
+
+/**
+ * Colour of an open task's timeline: yellow while today is inside start…due, red from TIMELINE_RED_DAYS before the
+ * due date, red + a note once it is past due. Done tasks, tasks without a due date and tasks not started yet: none.
+ */
+export function timelineTone(task: Pick<Task, 'isDone' | 'startDate' | 'dueDate'>, today: ISODate): TimelineTone {
+  if (task.isDone || !task.dueDate) return 'none'
+  if (task.dueDate < today) return 'late'
+  if (task.dueDate <= addDays(today, TIMELINE_RED_DAYS)) return 'due-soon'
+  if (!task.startDate || task.startDate <= today) return 'active'
+  return 'none'
+}
+
 // ---------- tree building & progress ----------
 
 const bySort = (a: { sortOrder: number }, b: { sortOrder: number }) => a.sortOrder - b.sortOrder

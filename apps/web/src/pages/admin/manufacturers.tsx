@@ -10,8 +10,6 @@ import type { UsedBy } from '@/features/admin-master/row-controls'
 import { SortableList } from '@/features/admin-master/sortable-list'
 
 const NOUN = 'บริษัทรับผลิต'
-const ON_HINT = 'กลับมาให้เลือกตอนยืนยันเริ่มผลิตได้ตามปกติ'
-const OFF_HINT = 'จะไม่แสดงให้เลือกตอนยืนยันเริ่มผลิต ใบสั่งผลิตเดิมยังแสดงชื่อเดิม'
 /** Usage = projects with a production order naming the manufacturer (GET /manufacturers/usage). */
 const USED_BY: UsedBy = { count: (n) => `ใบสั่งผลิตของ ${n} โปรเจกต์`, hiddenFrom: 'ตัวเลือกตอนยืนยันเริ่มผลิต', kept: 'ใบสั่งผลิตเดิม', none: 'ใบสั่งผลิตใด' }
 
@@ -99,8 +97,6 @@ export default function AdminManufacturersPage() {
                 onEdit={() => setDialog({ open: true, manufacturer: m })}
                 onSetActive={(isActive) => update.mutateAsync({ id: m.id, patch: { isActive } })}
                 onDelete={() => remove.mutateAsync(m.id)}
-                onHint={ON_HINT}
-                offHint={OFF_HINT}
                 usedBy={USED_BY}
               />
             )}

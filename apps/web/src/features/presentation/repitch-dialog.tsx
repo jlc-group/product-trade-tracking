@@ -1,7 +1,6 @@
 import type { ISODate } from '@flowtrade/shared'
 import { TriangleAlertIcon } from 'lucide-react'
 import { useId, useState, type FormEvent } from 'react'
-import { toast } from 'sonner'
 import { DateField } from '@/components/common/date-field'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -82,11 +81,9 @@ function RepitchForm({ model, view, target, onDone }: { model: PresentationModel
     try {
       if (target && patch) {
         await edit.mutateAsync({ trackId: view.track.id, targetEventId: target.id, patch })
-        toast.success('บันทึกการแก้ไขแล้ว')
       } else {
         setHolding(true)
         await record.mutateAsync({ trackIds: [view.track.id], expectStage: 'REJECTED', events: [event] })
-        toast.success('เริ่มนำเสนอใหม่แล้ว', { description: `${view.store.name} · รอนำเสนอ (รอบที่ ${round})` })
       }
       onDone()
     } catch {

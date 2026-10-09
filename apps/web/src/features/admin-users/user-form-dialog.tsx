@@ -1,8 +1,7 @@
-import { ROLE_LABEL, signInName, type Role, type User } from '@flowtrade/shared'
+import { ROLE_LABEL, type Role, type User } from '@flowtrade/shared'
 import { ArrowLeftRightIcon, CircleCheckIcon, DicesIcon, ExternalLinkIcon, EyeIcon, EyeOffIcon, KeyRoundIcon, Loader2Icon, UserPlusIcon } from 'lucide-react'
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router'
-import { toast } from 'sonner'
 import { ApiError, type UserInput } from '@/api'
 import { useCreateUser, useDepartments, useUpdateUser } from '@/api/hooks'
 import { useAuth } from '@/auth/auth'
@@ -217,19 +216,11 @@ export function UserFormDialog({ open, onOpenChange, user, isSelf, positionOptio
         // Leave the department out unless it changed — a user may still be on a since-deactivated one.
         const departmentPatch = department !== (user.department ?? null) ? { department } : {}
         await update.mutateAsync({ id: user.id, patch: isSelf ? { ...rest, ...departmentPatch } : { ...rest, ...departmentPatch, role } })
-        toast.success(password ? `บันทึกข้อมูลและตั้งรหัสผ่านใหม่ของ ${input.name} แล้ว` : `บันทึกข้อมูลของ ${input.name} แล้ว`, {
-          description: password ? 'ผู้ใช้ถูกออกจากระบบทุกอุปกรณ์ ให้เข้าสู่ระบบใหม่ด้วยรหัสผ่านนี้' : undefined,
-        })
         onOpenChange(false)
       } else {
         const result = await create.mutateAsync(input)
-        if (result.tempPassword) {
-          setIssued({ user: result.user, tempPassword: result.tempPassword })
-          toast.success(`เพิ่ม ${result.user.name} เข้าระบบแล้ว`)
-        } else {
-          toast.success(`เพิ่ม ${result.user.name} เข้าระบบแล้ว`, { description: `เข้าสู่ระบบด้วย ${signInName(result.user)} และรหัสผ่านที่ตั้งไว้` })
-          onOpenChange(false)
-        }
+        if (result.tempPassword) setIssued({ user: result.user, tempPassword: result.tempPassword })
+        else onOpenChange(false)
       }
     } catch (err) {
       // The hook already shows the error toast; also put field errors (e.g. duplicate email or username) under the field.

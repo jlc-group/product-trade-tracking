@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { uuid } from '@/lib/id'
 import { api, ApiError } from './index'
 import type {
+  AppNotification,
   CreateProposalInput,
   DepartmentInput,
   CreateTaskInput,
@@ -441,10 +442,25 @@ export function useAddComment(proposalId: string) {
 }
 
 export const useActivity = (proposalId?: string, limit?: number) => useQuery({ queryKey: qk.activity(proposalId, limit), queryFn: () => api.activity.list({ proposalId, limit }) })
-export const useNotifications = () => useQuery({ queryKey: qk.notifications, queryFn: api.notifications.list, refetchInterval: 60_000 })
+/** The bell: polled every 30 s (while the tab is visible) and again when the window regains focus. */
+export const useNotifications = () =>
+  useQuery({ queryKey: qk.notifications, queryFn: api.notifications.list, refetchInterval: 30_000, refetchOnWindowFocus: true })
+/** Marks one (or "all") read at once in the cached list; a failed request puts the dots back. */
 export function useMarkNotificationRead() {
   const qc = useQueryClient()
-  return useMutation({ mutationFn: (id: string | 'all') => api.notifications.markRead(id), onSuccess: () => qc.invalidateQueries({ queryKey: qk.notifications }) })
+  return useMutation({
+    mutationFn: (id: string | 'all') => api.notifications.markRead(id),
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: qk.notifications })
+      const previous = qc.getQueryData<AppNotification[]>(qk.notifications)
+      qc.setQueryData<AppNotification[]>(qk.notifications, (list) => list?.map((n) => (id === 'all' || n.id === id ? { ...n, isRead: true } : n)))
+      return { previous }
+    },
+    onError: (_error, _id, context) => {
+      if (context?.previous) qc.setQueryData(qk.notifications, context.previous)
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: qk.notifications }),
+  })
 }
 
 /** Home dashboard; also primes the sidebar badge (its overdue task rows are the badge's count by definition). */

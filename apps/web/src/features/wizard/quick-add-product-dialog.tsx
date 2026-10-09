@@ -1,7 +1,6 @@
 import type { Product } from '@flowtrade/shared'
 import { Loader2Icon, PackagePlusIcon } from 'lucide-react'
 import { useId, useMemo, useState, type FormEvent } from 'react'
-import { toast } from 'sonner'
 import { productMutations, useProducts } from '@/api/hooks'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -73,7 +72,6 @@ function QuickAddForm({ initialName, onCancel, onCreated }: { initialName: strin
         size: form.size || null,
         barcode: form.barcode || null,
       })
-      toast.success(`เพิ่มสินค้า ${created.sku} แล้ว และเลือกไว้ให้เรียบร้อย`)
       onCreated(created)
     } catch {
       // Error toast comes from the mutation hook.

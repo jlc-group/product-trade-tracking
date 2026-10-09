@@ -1,4 +1,4 @@
-import { LEVEL_LABEL, type ISODate, type TaskLevel, type TaskNode } from '@flowtrade/shared'
+import type { ISODate, TaskLevel, TaskNode } from '@flowtrade/shared'
 import { formatDateRange } from '@/lib/format'
 
 /** Key used for the top-level sibling group (parentId = null). */
@@ -19,11 +19,6 @@ export function childLabel(level: TaskLevel): string {
 /** Button text for adding a child under a parent of this level (null = top level). */
 export function addLabel(parentLevel: TaskLevel | null): string {
   return parentLevel === null ? 'เพิ่มงานหลัก' : `เพิ่ม ${childLabel(parentLevel)}`
-}
-
-/** Name used in friendly messages for a task of this level. */
-export function levelNoun(level: TaskLevel): string {
-  return level === 1 ? 'งานหลัก' : LEVEL_LABEL[level]
 }
 
 export const LEVEL_DOT: Record<TaskLevel, string> = {

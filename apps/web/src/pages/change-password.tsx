@@ -2,7 +2,6 @@ import { signInName } from '@flowtrade/shared'
 import { ArrowLeftIcon, LogOutIcon, ShieldCheckIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { toast } from 'sonner'
 import { useAuth, useCurrentUser } from '@/auth/auth'
 import { PageHeader } from '@/components/common/misc'
 import { UserAvatar } from '@/components/common/user-avatar'
@@ -65,10 +64,7 @@ export default function ChangePasswordPage() {
             submitLabel={forced ? 'บันทึกและเริ่มใช้งาน' : 'บันทึกรหัสผ่านใหม่'}
             autoFocus
             submitClassName="sm:w-full"
-            onSuccess={() => {
-              toast.success(forced ? `ตั้งรหัสผ่านใหม่เรียบร้อยแล้ว ยินดีต้อนรับสู่ ${APP_NAME}` : 'เปลี่ยนรหัสผ่านเรียบร้อยแล้ว')
-              navigate('/', { replace: true })
-            }}
+            onSuccess={() => navigate('/', { replace: true })}
           />
         </main>
 

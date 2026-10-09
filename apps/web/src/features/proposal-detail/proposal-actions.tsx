@@ -1,4 +1,4 @@
-import { can, canDeleteProposal, canEditProposal, isProposalOwner, PRODUCTION_HISTORY_DELETE, productionDeleteBlock, STATUS_LABEL, STATUS_ORDER, type ProposalStatus } from '@flowtrade/shared'
+import { can, canDeleteProposal, canEditProposal, canRescheduleProposal, isProposalOwner, PRODUCTION_HISTORY_DELETE, productionDeleteBlock, STATUS_LABEL, STATUS_ORDER, type ProposalStatus } from '@flowtrade/shared'
 import { CalendarClockIcon, ChevronDownIcon, CopyIcon, FileDownIcon, Loader2Icon, MoreHorizontalIcon, PencilIcon, Trash2Icon } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
@@ -75,6 +75,8 @@ export function ProposalActions({ proposal }: { proposal: ProposalDetail }) {
   const prod = useProductionSummary(proposal.id).summary
 
   const canEdit = canEditProposal(user, proposal)
+  // The launch date (whole timeline) moves only by the owner (creator) or ADMIN — not a MANAGER or team member.
+  const canReschedule = canRescheduleProposal(user, proposal)
   // Same rules as the server: live production blocks everyone; production that was confirmed and then cancelled
   // blocks all but an Admin (its history would go with the proposal).
   const liveProduction = prod?.confirmed ?? 0
@@ -140,7 +142,6 @@ export function ProposalActions({ proposal }: { proposal: ProposalDetail }) {
     }
     try {
       await changeStatus.mutateAsync({ id: proposal.id, status: next })
-      toast.success(`เปลี่ยนสถานะเป็น "${STATUS_LABEL[next]}" แล้ว`)
     } catch {
       // error already toasted by the hook
     }
@@ -156,7 +157,6 @@ export function ProposalActions({ proposal }: { proposal: ProposalDetail }) {
     if (!ok) return
     try {
       await remove.mutateAsync(proposal.id)
-      toast.success(`ลบ ${proposal.code} แล้ว`)
       navigate('/proposals', { replace: true })
     } catch {
       // error already toasted by the hook
@@ -202,7 +202,7 @@ export function ProposalActions({ proposal }: { proposal: ProposalDetail }) {
             </DropdownMenuContent>
           </DropdownMenu>
         )}
-        {canEdit && (
+        {canReschedule && (
           <Button variant="outline" onClick={() => setDialog('reschedule')}>
             <CalendarClockIcon /> เลื่อน{word}
           </Button>
@@ -249,9 +249,11 @@ export function ProposalActions({ proposal }: { proposal: ProposalDetail }) {
                 <DropdownMenuLabel>เปลี่ยนสถานะ</DropdownMenuLabel>
                 <StatusRadioItems current={proposal.status} openLeft={openLeft} word={pres.storeWord} onPick={onStatus} />
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => setDialog('reschedule')}>
-                  <CalendarClockIcon /> เลื่อน{word}
-                </DropdownMenuItem>
+                {canReschedule && (
+                  <DropdownMenuItem onSelect={() => setDialog('reschedule')}>
+                    <CalendarClockIcon /> เลื่อน{word}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onSelect={() => setDialog('edit')}>
                   <PencilIcon /> แก้ไขข้อมูล
                 </DropdownMenuItem>
@@ -273,7 +275,7 @@ export function ProposalActions({ proposal }: { proposal: ProposalDetail }) {
         </DropdownMenu>
       </div>
 
-      {canEdit && <RescheduleDialog proposal={proposal} open={dialog === 'reschedule'} onOpenChange={(open) => !open && setDialog(null)} />}
+      {canReschedule && <RescheduleDialog proposal={proposal} open={dialog === 'reschedule'} onOpenChange={(open) => !open && setDialog(null)} />}
       {canEdit && <EditProposalDialog proposal={proposal} open={dialog === 'edit'} onOpenChange={(open) => !open && setDialog(null)} />}
       {canDuplicate && <DuplicateDialog proposal={proposal} open={dialog === 'duplicate'} onOpenChange={(open) => !open && setDialog(null)} />}
       {confirmDialog}

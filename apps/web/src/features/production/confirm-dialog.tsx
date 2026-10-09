@@ -2,7 +2,6 @@ import { defaultNeededOn, defaultOrderStart, diffDays, formatQty, latestNeededOn
 import { useQueryClient } from '@tanstack/react-query'
 import { TriangleAlertIcon } from 'lucide-react'
 import { useId, useState, type FormEvent } from 'react'
-import { toast } from 'sonner'
 import { StoreLogos } from '@/components/common/badges'
 import { DateField } from '@/components/common/date-field'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -13,7 +12,7 @@ import { formatDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { ProdDialogActions } from './dialog-parts'
 import { useConfirmProduction } from './hooks'
-import { defaultOrderDraft, LAUNCH_RISK_DAYS, latestOrder, orderErrors, orderFieldsOf, PROD_ERR, qtyText, readQty, relativeTo, savedQty, startRange } from './model'
+import { defaultOrderDraft, LAUNCH_RISK_DAYS, orderErrors, orderFieldsOf, PROD_ERR, qtyText, readQty, relativeTo, savedQty, startRange } from './model'
 import { OrderFields } from './order-fields'
 import { isStale, orderFieldId, proposalLine, serverOrderErrors } from './utils'
 import type { OrderDraft, OrderErrors, OrderField, ProductionModel } from './types'
@@ -123,14 +122,12 @@ function ConfirmForm({ model, draft, onDone }: { model: ProductionModel; draft: 
     }
     if (needErr || lines.length === 0 || !neededOn || focusOrder(orderErrs)) return
     try {
-      const view = await confirm.mutateAsync({
+      await confirm.mutateAsync({
         items: read.map((l) => ({ productId: l.row.productId, quantity: l.value!, saved: l.saved })),
         neededOn,
         order: orderFieldsOf(order),
       })
       draft.clear()
-      const maker = latestOrder(view.orders)?.manufacturer.name
-      toast.success(`ยืนยันเริ่มผลิต ${lines.length} SKU แล้ว`, { description: [`ต้องการสินค้า ${formatDate(neededOn)}`, maker].filter(Boolean).join(' · ') })
       onDone()
     } catch (error) {
       // already toasted by the hook; a 409 means the pending set moved — the refetched tab shows the new one

@@ -1,4 +1,4 @@
-import { ROLE_SHORT, signInName, type Permission } from '@flowtrade/shared'
+import { ROLE_SHORT, signInName, type NotificationType, type Permission } from '@flowtrade/shared'
 import {
   BellIcon,
   Building2Icon,
@@ -18,7 +18,7 @@ import {
   StoreIcon,
   UsersIcon,
 } from 'lucide-react'
-import { Suspense } from 'react'
+import { Suspense, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import { useBadge, useMarkNotificationRead, useNotifications } from '@/api/hooks'
 import { useAuth, useCurrentUser } from '@/auth/auth'
@@ -156,13 +156,24 @@ function UserMenu() {
   )
 }
 
+/** Unread dot per kind: movements of others (ACTIVITY) vs notices addressed to you. */
+const NOTICE_DOT: Record<NotificationType, string> = {
+  ACTIVITY: 'bg-primary',
+  TASK_ASSIGNED: 'bg-success',
+  COMMENT: 'bg-warning',
+  PROPOSAL_STATUS: 'bg-info',
+  TASK_DUE_SOON: 'bg-warning',
+  TASK_OVERDUE: 'bg-danger',
+}
+
 function NotificationBell() {
+  const [open, setOpen] = useState(false)
   const { data: items = [] } = useNotifications()
   const markRead = useMarkNotificationRead()
   const navigate = useNavigate()
   const unread = items.filter((n) => !n.isRead).length
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button variant="ghost" size="icon" className="relative" aria-label={`การแจ้งเตือน ${unread} รายการใหม่`}>
           <BellIcon />
@@ -189,13 +200,14 @@ function NotificationBell() {
                 className={cn('flex w-full gap-3 border-b px-4 py-3 text-left last:border-0 hover:bg-muted/60', !n.isRead && 'bg-accent/50')}
                 onClick={() => {
                   if (!n.isRead) markRead.mutate(n.id)
+                  setOpen(false)
                   if (n.link) navigate(n.link)
                 }}
               >
-                <span className={cn('mt-1.5 size-2 shrink-0 rounded-full', n.isRead ? 'bg-transparent' : n.type === 'TASK_OVERDUE' ? 'bg-danger' : 'bg-primary')} />
+                <span className={cn('mt-1.5 size-2 shrink-0 rounded-full', n.isRead ? 'bg-transparent' : (NOTICE_DOT[n.type] ?? 'bg-primary'))} />
                 <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium">{n.title}</span>
-                  <span className="block truncate text-sm text-muted-foreground">{n.body}</span>
+                  <span className="block text-sm font-medium break-words">{n.title}</span>
+                  <span className="line-clamp-2 text-sm break-words text-muted-foreground">{n.body}</span>
                   <span className="mt-0.5 block text-xs text-muted-foreground/80">{fromNow(n.createdAt)}</span>
                 </span>
               </button>

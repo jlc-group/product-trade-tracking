@@ -130,7 +130,6 @@ export function useCloseOut(proposal: ProposalDetail) {
   const closeOut = async () => {
     try {
       await changeStatus.mutateAsync({ id: proposal.id, status: 'COMPLETED' })
-      toast.success(`ปิดโปรเจกต์ ${proposal.code} เรียบร้อย`)
       return true
     } catch {
       return false
@@ -152,7 +151,6 @@ function usePresentationWrite<TVars, TResult>(
   proposal: ProposalDetail,
   run: (vars: TVars) => Promise<TResult>,
   dataOf: (result: TResult) => PresentationData,
-  onWritten?: (before: PresentationData | undefined, after: PresentationData) => void,
 ) {
   const qc = useQueryClient()
   const key = presentationKey(proposal.id)
@@ -161,10 +159,7 @@ function usePresentationWrite<TVars, TResult>(
     onSuccess: async (result) => {
       // A read that started before this write would land older data on top of it.
       await qc.cancelQueries({ queryKey: key })
-      const before = qc.getQueryData<PresentationData>(key)
-      const after = dataOf(result)
-      qc.setQueryData(key, after)
-      onWritten?.(before, after)
+      qc.setQueryData(key, dataOf(result))
       void qc.invalidateQueries({ queryKey: ['activity'] })
       // Home agenda / project stages, the sidebar badge, Monitor and the proposal list read the tracks too.
       void qc.invalidateQueries({ queryKey: ['dashboard'] })
@@ -217,31 +212,9 @@ export interface RecordStepVars {
   events: StageEvent[]
 }
 
-/** Present / outcome / info sent / withdraw / re-pitch. Toasts "ได้ผลครบทุกห้างแล้ว" when the last store becomes final. */
+/** Present / outcome / info sent / withdraw / re-pitch. */
 export function useRecordStep(proposal: ProposalDetail) {
-  const me = useCurrentUser()
-  const { closeOut } = useCloseOut(proposal)
-  // Same rule as nextAction's close-out: the status API refuses COMPLETED while a task is open.
-  const canClose = canFinalizePresentation(me, proposal) && proposal.status !== 'COMPLETED' && proposal.progress.done === proposal.progress.total
-  return usePresentationWrite(
-    proposal,
-    (v: RecordStepVars) => presentationApi.record(proposal.id, v),
-    (r) => r,
-    (before, after) => {
-      const was = summarize(buildViews(before, proposal), proposal)
-      const now = summarize(buildViews(after, proposal), proposal)
-      if (was.allFinal || !now.allFinal) return
-      const word = storeWord(proposal.channel)
-      // Deferred past the dialog's own success toast so this one (with its action) lands on top.
-      setTimeout(() => {
-        toast.success(`ได้ผลครบทุก${word}แล้ว`, {
-          description: `ผ่าน ${now.passed} · ไม่ผ่าน ${now.rejected}${now.withdrawn ? ` · ยุติ ${now.withdrawn}` : ''}`,
-          duration: 10_000,
-          action: canClose ? { label: 'ตั้งเป็นเสร็จสิ้น', onClick: () => void closeOut() } : undefined,
-        })
-      }, 0)
-    },
-  )
+  return usePresentationWrite(proposal, (v: RecordStepVars) => presentationApi.record(proposal.id, v), (r) => r)
 }
 
 export interface ScheduleVars {

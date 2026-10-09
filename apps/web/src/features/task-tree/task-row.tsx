@@ -1,14 +1,16 @@
-import { autoCompletionHint, canToggleTask, completionMode, detailFieldsProgress, LEVEL_LABEL, PRIORITY_LABEL, PRIORITY_ORDER, type ISODate, type TaskNode, type TaskPriority, type User } from '@flowtrade/shared'
+import { autoCompletionHint, completionMode, detailFieldsProgress, LEVEL_LABEL, PRIORITY_LABEL, PRIORITY_ORDER, TIMELINE_LATE_NOTE, timelineTone, type ISODate, type TaskNode, type TaskPriority, type User } from '@flowtrade/shared'
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core'
 import {
   ArrowDownIcon,
   ArrowUpIcon,
   ChevronRightIcon,
+  ClockAlertIcon,
   CopyIcon,
   CornerDownRightIcon,
   EllipsisIcon,
   FolderInputIcon,
   GripVerticalIcon,
+  LockIcon,
   MessageSquareIcon,
   PanelRightOpenIcon,
   PencilIcon,
@@ -35,10 +37,12 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { today } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { DateRangePopover } from './date-range-popover'
 import { DepartmentChip, DepartmentPopover } from './department'
 import { IndentGuides } from './inline-add'
+import { structureNote, type TaskRights } from './task-rights'
 import { useTreeEnv } from './tree-context'
 import { addLabel, GRID_COLS, INDENT, LEVEL_DOT } from './tree-utils'
 
@@ -64,20 +68,41 @@ export interface TaskRowProps {
   /** Up/down reordering is offered (no filter active). */
   reorderable: boolean
   handle: DragHandleProps | null
+  /** The handle column is shown for the tree (rows that can't be dragged keep its space). */
+  handleSpace: boolean
+  rights: TaskRights
 }
 
 /** Left offset of the title on narrow screens: gutter + guides + chevron + checkbox + level dot. */
 const metaIndent = (depth: number) => 74 + depth * INDENT
 
-export function TaskRow({ node, depth, parentStart, parentDue, expanded, isContext, commentCount, renaming, selected, siblingIndex, siblingCount, reorderable, handle }: TaskRowProps) {
-  const { me, proposal, canManage, cancelled, usersById, actions } = useTreeEnv()
+export function TaskRow({
+  node,
+  depth,
+  parentStart,
+  parentDue,
+  expanded,
+  isContext,
+  commentCount,
+  renaming,
+  selected,
+  siblingIndex,
+  siblingCount,
+  reorderable,
+  handle,
+  handleSpace,
+  rights,
+}: TaskRowProps) {
+  const { proposal, cancelled, usersById, actions } = useTreeEnv()
   const hasChildren = node.children.length > 0
-  const isAssignee = node.assigneeIds.includes(me.id)
-  const canToggle = !cancelled && canToggleTask(me, proposal, node)
-  const canEditDetails = canManage || isAssignee
+  // A task of another department is read-only (rights.lockReason); dates of an existing task: Admin only (rights.dates).
+  const canManage = rights.manage
+  const canToggle = !cancelled && rights.fill
   const assignees = node.assigneeIds.map((id) => usersById.get(id)).filter((u): u is User => !!u)
   const quietPriority = node.priority === 'MEDIUM' || node.priority === 'LOW'
-  const hasMeta = canManage || canEditDetails || assignees.length > 0 || !!node.responsible || !!(node.startDate || node.dueDate) || !quietPriority
+  const hasMeta = canManage || rights.dates || assignees.length > 0 || !!node.responsible || !!(node.startDate || node.dueDate) || !quietPriority
+  // The delay note matters only while the project runs (a draft, paused, finished or cancelled one has no launch to shift).
+  const late = proposal.status === 'IN_PROGRESS' && timelineTone(node, today()) === 'late'
 
   return (
     <div
@@ -89,10 +114,10 @@ export function TaskRow({ node, depth, parentStart, parentDue, expanded, isConte
         selected && 'bg-brand-soft/50 hover:bg-brand-soft/70',
       )}
     >
-      {depth > 0 && <IndentGuides depth={depth} className={cn('pointer-events-none absolute inset-y-0', handle ? 'left-2 @3xl:left-[30px]' : 'left-2')} />}
+      {depth > 0 && <IndentGuides depth={depth} className={cn('pointer-events-none absolute inset-y-0', handleSpace ? 'left-2 @3xl:left-[30px]' : 'left-2')} />}
       {/* tree / title cell */}
       <div className="col-start-1 row-start-1 flex min-h-11 min-w-0 items-center gap-1.5 self-stretch pr-1 pl-2 @3xl:col-start-auto @3xl:row-start-auto @3xl:pr-3">
-        {handle && <DragHandle {...handle} title={node.title} />}
+        {handle ? <DragHandle {...handle} title={node.title} /> : handleSpace && <span className="hidden w-4 shrink-0 @3xl:block" aria-hidden />}
         {/* indent spacer; the guide lines themselves span the full row height (both lines on phones) */}
         <span className="shrink-0" style={{ width: depth * INDENT }} aria-hidden />
         {hasChildren ? (
@@ -108,13 +133,26 @@ export function TaskRow({ node, depth, parentStart, parentDue, expanded, isConte
         ) : (
           <span className="w-5 shrink-0" aria-hidden />
         )}
-        <RowCheckbox node={node} canToggle={canToggle} cancelled={cancelled} />
+        <RowCheckbox node={node} canToggle={canToggle} cancelled={cancelled} lockReason={rights.lockReason} />
         <span className={cn('size-1.5 shrink-0 rounded-full', LEVEL_DOT[node.level])} title={LEVEL_LABEL[node.level]} aria-hidden />
         <span className="sr-only">{LEVEL_LABEL[node.level]}:</span>
         {renaming ? (
           <RenameInput node={node} />
         ) : (
           <TitleButton node={node} canRename={canManage} muted={isContext} />
+        )}
+        {rights.lockReason && (
+          <span role="img" aria-label={rights.lockReason} title={rights.lockReason} className="inline-flex shrink-0 text-muted-foreground/70">
+            <LockIcon className="size-3" />
+          </span>
+        )}
+        {late && !renaming && (
+          // Takes only the space the title leaves (basis 0, grows up to its own width), so a long title stays readable;
+          // on narrow rows it shrinks down to the icon (full text in the tooltip and the drawer).
+          <span title={TIMELINE_LATE_NOTE} className="flex max-w-max min-w-3 grow basis-0 items-center gap-1 overflow-hidden text-xs font-medium text-danger">
+            <ClockAlertIcon className="size-3 shrink-0" aria-hidden />
+            <span className="min-w-0 truncate">{TIMELINE_LATE_NOTE}</span>
+          </span>
         )}
         {hasChildren && (
           <span
@@ -155,7 +193,7 @@ export function TaskRow({ node, depth, parentStart, parentDue, expanded, isConte
             parentStart={parentStart}
             parentDue={parentDue}
             hasParent={!!node.parentId}
-            editable={canEditDetails}
+            editable={rights.dates}
             onChange={(patch) => actions.update(node.id, patch)}
           />
         </div>
@@ -166,7 +204,7 @@ export function TaskRow({ node, depth, parentStart, parentDue, expanded, isConte
 
       {/* actions */}
       <div className="col-start-2 row-start-1 flex items-center justify-end pr-1.5 @3xl:col-start-auto @3xl:row-start-auto">
-        <RowMenu node={node} canManage={canManage} canEditDetails={canEditDetails} siblingIndex={siblingIndex} siblingCount={siblingCount} reorderable={reorderable} />
+        <RowMenu node={node} rights={rights} siblingIndex={siblingIndex} siblingCount={siblingCount} reorderable={reorderable} />
       </div>
     </div>
   )
@@ -189,7 +227,7 @@ function DragHandle({ setActivatorNodeRef, attributes, listeners, title }: DragH
   )
 }
 
-function RowCheckbox({ node, canToggle, cancelled }: { node: TaskNode; canToggle: boolean; cancelled: boolean }) {
+function RowCheckbox({ node, canToggle, cancelled, lockReason }: { node: TaskNode; canToggle: boolean; cancelled: boolean; lockReason: string | null }) {
   const { actions } = useTreeEnv()
   const label = node.isDone ? `ยกเลิกเครื่องหมายเสร็จของ “${node.title}”` : `ทำเครื่องหมายว่า “${node.title}” เสร็จแล้ว`
   // A table and / or sub tasks decide this box: it follows them and can't be ticked by hand.
@@ -207,9 +245,11 @@ function RowCheckbox({ node, canToggle, cancelled }: { node: TaskNode; canToggle
       <TooltipContent>
         {cancelled
           ? 'โปรเจกต์นี้ถูกยกเลิกแล้ว — ทำเครื่องหมายไม่ได้'
-          : mode !== 'manual'
-            ? autoCompletionHint(mode)
-            : 'ทำเครื่องหมายได้เฉพาะทีมงานโปรเจกต์หรือผู้รับผิดชอบงานนี้'}
+          : lockReason
+            ? lockReason
+            : mode !== 'manual'
+              ? autoCompletionHint(mode)
+              : 'ทำเครื่องหมายได้เฉพาะทีมงานโปรเจกต์หรือผู้รับผิดชอบงานนี้'}
       </TooltipContent>
     </Tooltip>
   )
@@ -383,20 +423,22 @@ function PriorityCell({ priority, editable, onChange }: { priority: TaskPriority
 
 function RowMenu({
   node,
-  canManage,
-  canEditDetails,
+  rights,
   siblingIndex,
   siblingCount,
   reorderable,
 }: {
   node: TaskNode
-  canManage: boolean
-  canEditDetails: boolean
+  rights: TaskRights
   siblingIndex: number
   siblingCount: number
   reorderable: boolean
 }) {
   const { actions } = useTreeEnv()
+  const canManage = rights.manage
+  // Same rules as the API: moving, copying and deleting also need the parent / sub tasks editable (shared taskStructureRights).
+  const { structure } = rights
+  const note = structureNote(structure)
   // Actions that move focus elsewhere (an input, the drawer, a dialog) must not get it pulled back to the trigger.
   const keepFocus = useRef(false)
   const handOff = (fn: () => void) => () => {
@@ -428,7 +470,7 @@ function RowMenu({
         )}
         <DropdownMenuItem onSelect={handOff(() => actions.openTask(node.id))}>
           <PanelRightOpenIcon />
-          {canEditDetails ? 'แก้ไขรายละเอียด' : 'ดูรายละเอียด'}
+          {rights.fill ? 'แก้ไขรายละเอียด' : 'ดูรายละเอียด'}
         </DropdownMenuItem>
         {canManage && (
           <>
@@ -437,12 +479,12 @@ function RowMenu({
               เปลี่ยนชื่อ
               <DropdownMenuShortcut>F2</DropdownMenuShortcut>
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => actions.duplicate(node)}>
+            <DropdownMenuItem disabled={!structure.duplicate} onSelect={() => actions.duplicate(node)}>
               <CopyIcon />
               คัดลอก
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            {reorderable && (
+            {reorderable && structure.reorder && (
               <>
                 <DropdownMenuItem disabled={siblingIndex <= 0} onSelect={() => actions.moveBy(node, -1)}>
                   <ArrowUpIcon />
@@ -454,15 +496,21 @@ function RowMenu({
                 </DropdownMenuItem>
               </>
             )}
-            <DropdownMenuItem onSelect={handOff(() => actions.requestMove(node))}>
+            <DropdownMenuItem disabled={!structure.move} onSelect={handOff(() => actions.requestMove(node))}>
               <FolderInputIcon />
               ย้ายไปไว้ใต้…
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onSelect={handOff(() => actions.remove(node))}>
+            <DropdownMenuItem variant="destructive" disabled={!structure.remove} onSelect={handOff(() => actions.remove(node))}>
               <Trash2Icon />
               ลบ
             </DropdownMenuItem>
+            {note && (
+              <p role="note" className="flex items-start gap-1.5 px-2 py-1.5 text-xs text-muted-foreground">
+                <LockIcon className="mt-0.5 size-3 shrink-0" aria-hidden />
+                {note}
+              </p>
+            )}
           </>
         )}
       </DropdownMenuContent>

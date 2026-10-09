@@ -1,6 +1,5 @@
 import { datesErrors, isConfirmedStatus, latestNeededOn, productionRowActions, type ISODate, type ProductionDatesInput } from '@flowtrade/shared'
 import { useId, useState, type FormEvent } from 'react'
-import { toast } from 'sonner'
 import { DateField } from '@/components/common/date-field'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Field } from '@/features/presentation/dialog-parts'
@@ -63,7 +62,6 @@ function DatesForm({ model, row, onDone }: { model: ProductionModel; row: Produc
     if (unchanged || errors.neededOn || errors.producedOn || errors.deliveredOn) return
     try {
       await edit.mutateAsync({ productId: row.productId, input: patch })
-      toast.success('แก้วันที่แล้ว')
       onDone()
     } catch (error) {
       // already toasted by the hook

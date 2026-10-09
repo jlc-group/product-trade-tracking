@@ -1,7 +1,6 @@
 import { orderLabel } from '@flowtrade/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { useId, useMemo, useState, type FormEvent } from 'react'
-import { toast } from 'sonner'
 import { ApiError } from '@/api'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { formatDate } from '@/lib/format'
@@ -79,7 +78,6 @@ function OrderForm({ model, order, onDone }: { model: ProductionModel; order: Pr
     if (focusFirst(errors) || unchanged) return
     try {
       await edit.mutateAsync({ orderId: order.id, input: { ...patch, updatedAt: order.updatedAt } })
-      toast.success(`บันทึกข้อมูล${orderLabel(order)} แล้ว`)
       onDone()
     } catch (error) {
       // already toasted and refetched by the hook: 409 = edited by someone else meanwhile, 404 = the order is gone

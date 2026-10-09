@@ -30,8 +30,7 @@ export default function AdminMonitorPage() {
 
   const refresh = async () => {
     const result = await refetch()
-    if (result.isSuccess) toast.success('อัปเดตข้อมูลภาพรวมล่าสุดแล้ว')
-    else if (result.error) toast.error(errorMessage(result.error))
+    if (result.error) toast.error(errorMessage(result.error))
   }
 
   return (

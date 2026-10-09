@@ -1,6 +1,5 @@
 import { FolderKanbanIcon, PencilIcon, Trash2Icon } from 'lucide-react'
 import { useId, useState, type ReactNode } from 'react'
-import { toast } from 'sonner'
 import type { useConfirm } from '@/components/common/misc'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -12,29 +11,15 @@ export type ConfirmFn = ReturnType<typeof useConfirm>[0]
 
 /**
  * Optimistic active/inactive switch state. `setActive` should resolve after the
- * list has been refetched, so the switch never flickers back. The toast hints default to the proposal wizard's wording.
+ * list has been refetched, so the switch never flickers back.
  */
-export function useActiveToggle({
-  name,
-  isActive,
-  setActive,
-  onHint,
-  offHint,
-}: {
-  name: string
-  isActive: boolean
-  setActive: (active: boolean) => Promise<unknown>
-  onHint?: string
-  offHint?: string
-}) {
+export function useActiveToggle({ isActive, setActive }: { isActive: boolean; setActive: (active: boolean) => Promise<unknown> }) {
   const [optimistic, setOptimistic] = useState<boolean | null>(null)
   const checked = optimistic ?? isActive
   const toggle = async (next: boolean) => {
     setOptimistic(next)
     try {
       await setActive(next)
-      if (next) toast.success(`เปิดใช้งาน ${name} แล้ว`, { description: onHint ?? 'กลับมาให้เลือกในขั้นตอนเสนอสินค้าได้ตามปกติ' })
-      else toast.success(`ปิดใช้งาน ${name} แล้ว`, { description: offHint ?? 'จะไม่แสดงให้เลือกในการเสนอสินค้าใหม่ — โปรเจกต์เดิมไม่ได้รับผลกระทบ' })
     } catch {
       // error toast comes from the mutation hook
     } finally {
@@ -161,7 +146,6 @@ export function DeleteButton({
     setBusy(true)
     try {
       await onDelete()
-      toast.success(`ลบ ${name} แล้ว`)
     } catch {
       // IN_USE / permission errors are toasted by the hook
     } finally {

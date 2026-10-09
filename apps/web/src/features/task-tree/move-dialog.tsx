@@ -1,11 +1,12 @@
-import { checkMove, flattenTree, LEVEL_LABEL, type Task, type TaskNode } from '@flowtrade/shared'
+import { checkMove, flattenTree, LEVEL_LABEL, moveTaskLockReason, type MoveCheck, type Task, type TaskNode } from '@flowtrade/shared'
 import { ArrowUpToLineIcon, CornerDownRightIcon } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { LEVEL_DOT } from './tree-utils'
+import { useTreeEnv } from './tree-context'
 
 const TOP = '__top__'
 
@@ -36,15 +37,24 @@ export function MoveDialog({ node, roots, tasks, pending, onClose, onMove }: Mov
 function MoveDialogBody({ node, roots, tasks, pending, onClose, onMove }: MoveDialogProps & { node: TaskNode }) {
   const [selected, setSelected] = useState<string | null>(null)
 
+  const { me, proposal } = useTreeEnv()
+  // Same department rules as the API: the task, its sub tasks, its current parent and the new parent must be editable.
+  const check = useCallback(
+    (parentId: string | null): MoveCheck => {
+      const lock = moveTaskLockReason(me, proposal, tasks, node.id, parentId)
+      return lock ? { ok: false, newLevel: null, reason: lock } : checkMove(tasks, node.id, parentId)
+    },
+    [me, proposal, tasks, node.id],
+  )
   const options = useMemo(() => {
     const descendants = new Set(flattenTree(node.children).map((n) => n.id))
     return flattenTree(roots)
       // Mini tasks can never hold children; the task itself and its own subtree are never targets.
       .filter((n) => n.level < 3 && n.id !== node.id && !descendants.has(n.id))
-      .map((n) => ({ node: n, check: checkMove(tasks, node.id, n.id), isCurrent: n.id === node.parentId }))
-  }, [node, roots, tasks])
+      .map((n) => ({ node: n, check: check(n.id), isCurrent: n.id === node.parentId }))
+  }, [node, roots, check])
 
-  const topCheck = useMemo(() => checkMove(tasks, node.id, null), [tasks, node.id])
+  const topCheck = useMemo(() => check(null), [check])
   const selectedParentId = selected === TOP ? null : selected
   const selectedCheck = selected === null ? null : selected === TOP ? topCheck : options.find((o) => o.node.id === selected)?.check
   const subCount = flattenTree(node.children).length

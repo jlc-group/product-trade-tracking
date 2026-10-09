@@ -1,7 +1,6 @@
 import { ArrowLeftIcon, ArrowRightIcon, CircleAlertIcon, CornerDownLeftIcon, ListChecksIcon, Loader2Icon, RocketIcon, XIcon } from 'lucide-react'
 import { useEffect, useId, useMemo, useReducer, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { toast } from 'sonner'
 import { useCreateProposal, useShelfTypes, useStores, useSuggestedTemplate, useTemplate } from '@/api/hooks'
 import { useCurrentUser } from '@/auth/auth'
 import { PageHeader, useConfirm } from '@/components/common/misc'
@@ -159,8 +158,6 @@ export function NewProposalWizard() {
         memberIds: state.memberIds,
         status: state.status,
       })
-      const draft = state.status === 'DRAFT'
-      toast.success(draft ? `บันทึกร่าง ${created.code} แล้ว` : `สร้าง ${created.code} เรียบร้อย เริ่มงานได้เลย`, { description: created.title })
       navigate(`/proposals/${created.id}`, { replace: true })
     } catch {
       // The mutation hook already shows the error toast; stay on the review step so nothing is lost.

@@ -1,7 +1,6 @@
 import type { ISODate, Store } from '@flowtrade/shared'
 import { TriangleAlertIcon } from 'lucide-react'
 import { useId, useState, type FormEvent } from 'react'
-import { toast } from 'sonner'
 import { DateField } from '@/components/common/date-field'
 import { StoreChecklist } from '@/components/common/store-checklist'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -79,7 +78,6 @@ function CreateForm({ model, initialStoreIds, onDone }: { model: PresentationMod
     setSaving({ takenIds, storeIds })
     try {
       await create.mutateAsync({ tasks: tasks.filter((t) => taskIds.includes(t.id)), storeIds, meetingDate, presenterIds, note: note.trim() || null })
-      toast.success('สร้างชุดนำเสนอแล้ว', { description: `${storeIds.length} ${word}อยู่ในขั้น “รอนำเสนอ”` })
       onDone()
     } catch {
       // error already toasted by the hook

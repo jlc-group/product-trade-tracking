@@ -15,7 +15,7 @@ export interface ProductRowActions {
 }
 
 function useProductRow(product: Product, actions: ProductRowActions) {
-  const { checked, pending, toggle } = useActiveToggle({ name: product.sku, isActive: product.isActive, setActive: (v) => actions.onSetActive(product, v) })
+  const { checked, pending, toggle } = useActiveToggle({ isActive: product.isActive, setActive: (v) => actions.onSetActive(product, v) })
   const del = (
     <DeleteButton
       name={product.sku}

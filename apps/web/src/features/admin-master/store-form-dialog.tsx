@@ -2,7 +2,6 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import type { Channel, Store } from '@flowtrade/shared'
 import { Loader2Icon } from 'lucide-react'
 import { Controller, useForm, useWatch } from 'react-hook-form'
-import { toast } from 'sonner'
 import { z } from 'zod'
 import { ApiError, type StoreInput } from '@/api'
 import { storeMutations } from '@/api/hooks'
@@ -102,10 +101,8 @@ function StoreForm({ store, defaultChannel, stores, usage, onDone }: { store: St
       if (store) {
         const { channel: nextChannel, ...rest } = input
         await update.mutateAsync({ id: store.id, patch: nextChannel === store.channel ? rest : input })
-        toast.success(`บันทึก ${cleanName} แล้ว`)
       } else {
         await create.mutateAsync(input)
-        toast.success(`เพิ่ม${STORE_NOUN[values.channel]} ${cleanName} แล้ว`, { description: 'เลือกได้ในขั้นตอนเสนอสินค้าทันที' })
       }
       onDone(values.channel)
     } catch (error) {

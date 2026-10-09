@@ -1,4 +1,4 @@
-import { isOverdue, type ISODate, type Progress } from '@flowtrade/shared'
+import { timelineTone, type ISODate, type Progress } from '@flowtrade/shared'
 import { CalendarClockIcon, InboxIcon } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import {
@@ -72,13 +72,14 @@ export function ProgressBar({ progress, className }: { progress: Pick<Progress, 
 
 /** Date range with overdue / due-soon coloring. */
 export function DueChip({ startDate, dueDate, isDone, className, compact }: { startDate: ISODate | null; dueDate: ISODate | null; isDone: boolean; className?: string; compact?: boolean }) {
-  const overdue = isOverdue({ isDone, dueDate }, today())
-  const soon = !isDone && !!dueDate && !overdue && daysUntil(dueDate) <= 3
+  // Yellow while inside the task's window, red from 2 days before due and once overdue (shared timelineTone).
+  const tone = timelineTone({ isDone, startDate, dueDate }, today())
+  const overdue = tone === 'late'
   return (
     <span
       className={cn(
         'inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-xs whitespace-nowrap tabular',
-        isDone ? 'text-muted-foreground' : overdue ? 'bg-danger-soft font-medium text-danger' : soon ? 'bg-warning-soft text-warning-foreground' : 'text-muted-foreground',
+        tone === 'late' || tone === 'due-soon' ? 'bg-danger-soft font-medium text-danger' : tone === 'active' ? 'bg-warning-soft text-warning-foreground' : 'text-muted-foreground',
         className,
       )}
       title={dueDate ? relativeDay(dueDate) : undefined}

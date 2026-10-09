@@ -1,6 +1,5 @@
 import { cancelReasonError, NOTE_MAX } from '@flowtrade/shared'
 import { useId, useState, type FormEvent } from 'react'
-import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
 import { Field } from '@/features/presentation/dialog-parts'
@@ -51,7 +50,6 @@ function CancelForm({ model, row, from, onDone }: { model: ProductionModel; row:
     if (error) return
     try {
       await cancel.mutateAsync({ productId: row.productId, reason: reason.trim(), from })
-      toast.success(skip ? `ไม่ผลิต ${sku} แล้ว` : `ยกเลิกการผลิต ${sku} แล้ว`)
       onDone()
     } catch (err) {
       // already toasted by the hook

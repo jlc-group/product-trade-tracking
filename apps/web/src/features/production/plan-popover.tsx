@@ -1,7 +1,6 @@
 import { addDays, leadDaysError, NOTE_MAX, noteError, PRODUCTION_LEAD_DAYS_DEFAULT, PRODUCTION_LEAD_QUICK, type ProductionPlanInput } from '@flowtrade/shared'
 import { Loader2Icon, TriangleAlertIcon } from 'lucide-react'
 import { useId, useState, type FormEvent } from 'react'
-import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -63,7 +62,6 @@ function PlanForm({ model, onDone }: { model: ProductionModel; onDone: () => voi
     if (leadErr || noteErr || unchanged) return
     try {
       await save.mutateAsync(input)
-      toast.success(input.leadDays !== undefined ? 'บันทึก deadline ผลิตแล้ว' : 'บันทึกหมายเหตุแล้ว')
       onDone()
     } catch {
       // error already toasted by the hook

@@ -140,7 +140,6 @@ export function TemplateEditor({ template, stores, shelfTypes, activePending, on
       setBaseline(next)
       setDraft(next)
       setAttempted(false)
-      toast.success('บันทึกแม่แบบแล้ว', { description: 'การเสนอสินค้าใหม่จะใช้ขั้นตอนชุดนี้ — โปรเจกต์เดิมไม่เปลี่ยน' })
     } catch {
       // toasted by the hook
     }
@@ -149,7 +148,6 @@ export function TemplateEditor({ template, stores, shelfTypes, activePending, on
   const discard = () => {
     setDraft(baseline)
     setAttempted(false)
-    toast('ยกเลิกการแก้ไขแล้ว — กลับเป็นฉบับที่บันทึกล่าสุด')
   }
 
   // Ctrl/Cmd + S saves.
@@ -203,9 +201,6 @@ export function TemplateEditor({ template, stores, shelfTypes, activePending, on
         if (!ok) return
       }
       setItems((items) => removeItem(items, id).items)
-      toast(`ลบ "${name}"${removed.length > 1 ? ` และงานย่อย ${removed.length - 1} งาน` : ''} แล้ว`, {
-        action: { label: 'เลิกทำ', onClick: () => setItems((items) => [...items.filter((i) => !removed.some((r) => r.id === i.id)), ...removed]) },
-      })
     },
     onToggleCollapse: (id) =>
       setCollapsed((c) => {
@@ -245,19 +240,13 @@ export function TemplateEditor({ template, stores, shelfTypes, activePending, on
           ทั้ง {draft.items.length} งานจะเริ่ม {PREP_DAYS} วันก่อนวางขาย และต้องเสร็จก่อนวางขาย 1 วัน — เช่น วางขาย {formatDate(exampleLaunch)} → เริ่ม{' '}
           {formatDate(prepStartOf(exampleLaunch))} ถึง {formatDate(addDays(exampleLaunch, PREP_DUE_OFFSET))}
           <br />
-          วันที่ที่ตั้งไว้เดิมของแต่ละงานจะถูกแทนที่ — ยังไม่บันทึกจนกว่าจะกด "บันทึกแม่แบบ" และกดเลิกทำได้
+          วันที่ที่ตั้งไว้เดิมของแต่ละงานจะถูกแทนที่ — ยังไม่บันทึกจนกว่าจะกด "บันทึกแม่แบบ"
         </>
       ),
       confirmLabel: 'ตั้งวันทุกงาน',
     })
     if (!ok) return
-    // Undo restores only the offsets, so edits made after the bulk change are kept.
-    const before = new Map(draft.items.map((i) => [i.id, { startOffsetDays: i.startOffsetDays, dueOffsetDays: i.dueOffsetDays }]))
     setItems((items) => setAllOffsets(items, PREP_START_OFFSET, PREP_DUE_OFFSET))
-    toast(`ตั้งทุกงานเป็น ${offsetLabel(PREP_START_OFFSET)} → ${offsetLabel(PREP_DUE_OFFSET)} แล้ว`, {
-      description: 'กด "บันทึกแม่แบบ" เพื่อใช้กับการเสนอสินค้าใหม่',
-      action: { label: 'เลิกทำ', onClick: () => setItems((items) => items.map((i) => ({ ...i, ...before.get(i.id) }))) },
-    })
   }
 
   return (

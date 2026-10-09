@@ -123,7 +123,7 @@ export function useProductionImpact(proposal: Pick<ProposalDetail, 'id' | 'produ
  * wrote); onError toasts the server's message and refetches the view, the proposal and the presentation (a 409 usually
  * means a PASS, a SKU or another teammate moved things), so a dialog's catch already sees the fresh data.
  */
-function useProductionWrite<TVars>(proposal: ProposalDetail, run: (vars: TVars) => Promise<ProductionView>, onWritten?: (before: ProductionView | undefined, after: ProductionView) => void) {
+function useProductionWrite<TVars>(proposal: ProposalDetail, run: (vars: TVars) => Promise<ProductionView>) {
   const qc = useQueryClient()
   const key = productionKey(proposal.id)
   return useMutation({
@@ -131,9 +131,7 @@ function useProductionWrite<TVars>(proposal: ProposalDetail, run: (vars: TVars) 
     onSuccess: async (view) => {
       // A read that started before this write would land older data on top of it.
       await qc.cancelQueries({ queryKey: key })
-      const before = qc.getQueryData<ProductionView>(key)
       qc.setQueryData(key, view)
-      onWritten?.(before, view)
       void qc.invalidateQueries({ queryKey: ['activity'] })
       void qc.invalidateQueries({ queryKey: ['dashboard'] })
       void qc.invalidateQueries({ queryKey: qk.notifications })
@@ -161,17 +159,8 @@ export function useConfirmProduction(proposal: ProposalDetail) {
   return useProductionWrite(proposal, (v: ProductionConfirmInput) => productionApi.confirm(proposal.id, v))
 }
 
-/** Toasts "ส่งเข้าคลัง/ห้างครบทุก SKU แล้ว" when this write delivered the last SKU. */
 export function useAdvanceProduction(proposal: ProposalDetail) {
-  return useProductionWrite(
-    proposal,
-    (v: ProductionAdvanceInput) => productionApi.advance(proposal.id, v),
-    (before, after) => {
-      if (before?.summary.state === 'DONE' || after.summary.state !== 'DONE') return
-      // Deferred past the dialog's own success toast so this one lands on top.
-      setTimeout(() => toast.success(`ส่งเข้าคลัง/${storeWord(proposal.channel)}ครบทุก SKU แล้ว`), 0)
-    },
-  )
+  return useProductionWrite(proposal, (v: ProductionAdvanceInput) => productionApi.advance(proposal.id, v))
 }
 
 export function useBackProduction(proposal: ProposalDetail) {

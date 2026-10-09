@@ -3,7 +3,6 @@ import type { Product } from '@flowtrade/shared'
 import { Loader2Icon } from 'lucide-react'
 import { useId } from 'react'
 import { Controller, useForm } from 'react-hook-form'
-import { toast } from 'sonner'
 import { z } from 'zod'
 import { ApiError, type ProductInput } from '@/api'
 import { productMutations } from '@/api/hooks'
@@ -98,10 +97,8 @@ function ProductForm({ product, products, brands, categories, onDone }: { produc
     try {
       if (product) {
         await update.mutateAsync({ id: product.id, patch: input })
-        toast.success(`บันทึก ${sku} แล้ว`)
       } else {
         await create.mutateAsync(input)
-        toast.success(`เพิ่มสินค้า ${sku} แล้ว`, { description: 'เลือกได้ในขั้นตอนเสนอสินค้าทันที' })
       }
       onDone()
     } catch (error) {

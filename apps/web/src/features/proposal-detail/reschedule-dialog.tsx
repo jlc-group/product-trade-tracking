@@ -1,7 +1,6 @@
-import { diffDays, isLaunchDate, LAUNCH_DAY_OF_MONTH, PREP_DAYS, prepStartOf, type ISODate } from '@flowtrade/shared'
+import { diffDays, isLaunchDate, LAUNCH_DAY_OF_MONTH, PREP_DAYS, type ISODate } from '@flowtrade/shared'
 import { InfoIcon, Loader2Icon } from 'lucide-react'
 import { useId, useState, type FormEvent } from 'react'
-import { toast } from 'sonner'
 import type { ProposalDetail } from '@/api'
 import { useChangeTargetDate, useTasks } from '@/api/hooks'
 import { LaunchMonthPicker } from '@/components/common/launch-month-picker'
@@ -57,11 +56,6 @@ function RescheduleForm({ proposal, onDone }: { proposal: ProposalDetail; onDone
     if (!date || unchanged) return
     try {
       await mutation.mutateAsync({ id: proposal.id, targetDate: date, shiftTasks: shift })
-      toast.success(`เลื่อน${word}เป็น ${formatDate(date, { long: true })} แล้ว`, {
-        description: [`เริ่มเตรียม ${formatDate(prepStartOf(date), { long: true })}`, shift && openDated > 0 ? `งานที่ยังไม่เสร็จ ${openDated} งาน${shiftLabel(delta)}ตามไปด้วย` : null]
-          .filter(Boolean)
-          .join(' · '),
-      })
       onDone()
     } catch {
       // error already toasted by the hook

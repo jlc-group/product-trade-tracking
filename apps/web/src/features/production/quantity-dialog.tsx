@@ -1,7 +1,6 @@
 import { canEditQuantity, formatQty } from '@flowtrade/shared'
 import { TriangleAlertIcon } from 'lucide-react'
 import { useId, useState, type FormEvent } from 'react'
-import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Field } from '@/features/presentation/dialog-parts'
@@ -59,7 +58,6 @@ function QuantityForm({ model, row, onDone }: { model: ProductionModel; row: Pro
     if (unchanged) return
     try {
       await save.mutateAsync({ items: [{ productId: row.productId, quantity: value, before: saved }] })
-      toast.success(`บันทึกจำนวนผลิต ${row.product.sku} แล้ว`, { description: `${saved != null ? `${formatQty(saved)} → ` : ''}${formatQty(value)} ชิ้น` })
       onDone()
     } catch (error) {
       // already toasted by the hook

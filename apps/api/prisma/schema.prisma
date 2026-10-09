@@ -63,6 +63,8 @@ enum NotificationType {
   TASK_OVERDUE
   PROPOSAL_STATUS
   COMMENT
+  /// Someone else's logged movement (ActivityService.log fan-out): ADMIN / MANAGER see all, assignees their tasks'.
+  ACTIVITY
 }
 
 /// Where a store's buyer presentation stands (cached on presentation_tracks; the events decide).

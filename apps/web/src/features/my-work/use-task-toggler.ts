@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { toast } from 'sonner'
 import type { TaskRowItem } from '@/api'
 import { useToggleAnyTask } from '@/api/hooks'
 
@@ -34,20 +33,12 @@ export function useTaskToggler(dataUpdatedAt: number) {
       return next
     })
 
-  const run = async (item: TaskRowItem, isDone: boolean, opts: { undoable?: boolean } = {}) => {
-    const { undoable = true } = opts
+  const run = async (item: TaskRowItem, isDone: boolean) => {
     const id = item.task.id
     setOverrides((prev) => ({ ...prev, [id]: { isDone, pending: true, settledAt: 0 } }))
     try {
       await toggle.mutateAsync({ id, isDone, proposalId: item.proposal.id })
       setOverrides((prev) => ({ ...prev, [id]: { isDone, pending: false, settledAt: Date.now() } }))
-      if (undoable) {
-        toast.success(isDone ? 'ทำเครื่องหมายว่าเสร็จแล้ว' : 'ย้ายกลับเป็นงานที่ยังไม่เสร็จแล้ว', {
-          description: `${item.task.title} · ${item.proposal.code}`,
-          duration: 6000,
-          action: { label: 'เลิกทำ', onClick: () => void run(item, !isDone, { undoable: false }) },
-        })
-      }
     } catch {
       clear(id)
     }

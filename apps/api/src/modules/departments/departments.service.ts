@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import type { Department, User } from '@flowtrade/shared'
+import { sameDepartment, type Department, type User } from '@flowtrade/shared'
 import { ActivityService } from '../../common/activity.service.js'
 import { iso } from '../../common/dates.js'
 import { conflict, invalid, notFound } from '../../common/errors.js'
@@ -68,8 +68,10 @@ export class DepartmentsService {
 
   /**
    * Rename and/or (de)activate. A rename runs in one transaction; the FK users.department → departments.name
-   * is ON UPDATE CASCADE, so every user in the department follows the new name. Deactivating keeps the
-   * department on its current users but it can no longer be newly assigned.
+   * is ON UPDATE CASCADE, so every user in the department follows the new name, and the free-text department of
+   * tasks and template steps (`responsible`, matched like sameDepartment) is rewritten to it — the department lock
+   * compares the two, so the department's people keep their tasks. Deactivating keeps the department on its current
+   * users but it can no longer be newly assigned.
    */
   async update(actor: User, id: string, patch: UpdateDepartmentBody): Promise<Department> {
     try {
@@ -82,8 +84,9 @@ export class DepartmentsService {
           where: { id },
           data: { name: rename ? patch.name : undefined, isActive: patch.isActive },
         })
+        const moved = rename ? await this.renameResponsible(tx, department.name, row.name) : null
         const changes: string[] = []
-        if (rename) changes.push(`เปลี่ยนชื่อแผนก ${department.name} เป็น ${row.name} (ผู้ใช้ในแผนกเปลี่ยนตาม)`)
+        if (moved) changes.push(`เปลี่ยนชื่อแผนก ${department.name} เป็น ${row.name} (ผู้ใช้ในแผนก งาน ${moved.tasks} รายการ และขั้นตอนในแม่แบบ ${moved.items} รายการเปลี่ยนตาม)`)
         if (patch.isActive !== undefined && patch.isActive !== department.isActive) changes.push(`${row.isActive ? 'เปิด' : 'ปิด'}การใช้งานแผนก ${row.name}`)
         if (changes.length) await this.activity.log(tx, actor, rename ? 'department.rename' : 'department.update', 'DEPARTMENT', row.id, null, changes.join(' และ'))
         return toDepartment(row)
@@ -123,6 +126,21 @@ export class DepartmentsService {
       await this.activity.log(tx, actor, 'department.reorder', 'DEPARTMENT', ids[0] ?? '', null, 'จัดลำดับรายชื่อแผนกใหม่')
     })
     return true
+  }
+
+  /**
+   * Tasks and template steps whose department is `from` (trimmed, spaces collapsed, case-insensitive — the same match as
+   * the department lock) now say `to`. Matched in JS over the distinct stored spellings, so it agrees with sameDepartment.
+   */
+  private async renameResponsible(db: Db, from: string, to: string) {
+    const spellings = (rows: { responsible: string | null }[]) =>
+      rows.flatMap((r) => (r.responsible !== null && r.responsible !== to && sameDepartment(r.responsible, from) ? [r.responsible] : []))
+    const tasks = spellings(await db.task.findMany({ where: { responsible: { not: null } }, distinct: ['responsible'], select: { responsible: true } }))
+    const items = spellings(await db.taskTemplateItem.findMany({ where: { responsible: { not: null } }, distinct: ['responsible'], select: { responsible: true } }))
+    return {
+      tasks: tasks.length ? (await db.task.updateMany({ where: { responsible: { in: tasks } }, data: { responsible: to } })).count : 0,
+      items: items.length ? (await db.taskTemplateItem.updateMany({ where: { responsible: { in: items } }, data: { responsible: to } })).count : 0,
+    }
   }
 
   /** Case-insensitive name check (compared in JS so "_" / "%" are never wildcards). */

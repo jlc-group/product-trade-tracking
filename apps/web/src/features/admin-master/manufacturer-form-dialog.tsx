@@ -2,7 +2,6 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { MANUFACTURER_NAME_MAX, MANUFACTURER_NOTE_MAX, type Manufacturer } from '@flowtrade/shared'
 import { Loader2Icon } from 'lucide-react'
 import { useForm, useWatch } from 'react-hook-form'
-import { toast } from 'sonner'
 import { z } from 'zod'
 import { ApiError, type ManufacturerInput } from '@/api'
 import { manufacturerMutations } from '@/api/hooks'
@@ -71,10 +70,8 @@ function ManufacturerForm({ manufacturer, manufacturers, onDone }: { manufacture
         if (cleanedName !== manufacturer.name) patch.name = cleanedName
         if (cleanedNote !== manufacturer.note) patch.note = cleanedNote
         if (Object.keys(patch).length > 0) await update.mutateAsync({ id: manufacturer.id, patch })
-        toast.success(`บันทึก ${cleanedName} แล้ว`)
       } else {
         await create.mutateAsync({ name: cleanedName, note: cleanedNote })
-        toast.success(`เพิ่มบริษัทรับผลิต “${cleanedName}” แล้ว`, { description: 'เลือกได้ตอนยืนยันเริ่มผลิตทันที' })
       }
       onDone()
     } catch (error) {

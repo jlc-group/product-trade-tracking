@@ -47,7 +47,8 @@ createRoot(document.getElementById('root')!).render(
             <App />
           </Suspense>
         </AuthProvider>
-        <Toaster position="bottom-right" richColors closeButton />
+        {/* Only errors and "can't do this" warnings are toasted; they sit just below the 56px app header / bell. */}
+        <Toaster position="top-right" offset={{ top: 64 }} mobileOffset={{ top: 64 }} richColors closeButton />
       </TooltipProvider>
     </QueryClientProvider>
   </StrictMode>,

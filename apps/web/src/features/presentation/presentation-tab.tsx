@@ -106,7 +106,7 @@ export function PresentationTab({ proposal, onOpenTask, onGoToTasks }: Props) {
   }
   useEffect(() => {
     if (!deepKey) return
-    if (deepNotice) toast.info(deepNotice, { id: deepKey })
+    if (deepNotice) toast.warning(deepNotice, { id: deepKey })
     setParams(
       (prev) => {
         const p = new URLSearchParams(prev)
@@ -160,7 +160,6 @@ export function PresentationTab({ proposal, onOpenTask, onGoToTasks }: Props) {
     if (!ok) return
     try {
       await revert.mutateAsync({ trackId, targetEventId: target.id })
-      toast.success('ย้อนกลับแล้ว', { description: `${v.store.name} กลับไปเป็น “${prev}”` })
     } catch {
       // error already toasted by the hook
     }
@@ -178,7 +177,6 @@ export function PresentationTab({ proposal, onOpenTask, onGoToTasks }: Props) {
     if (!ok) return
     try {
       await removeTrack.mutateAsync({ trackId })
-      toast.success(`นำ ${v.store.name} ออกจากชุดแล้ว`)
       if (storeId === v.store.id) setStore(null)
     } catch {
       // error already toasted by the hook
@@ -198,7 +196,6 @@ export function PresentationTab({ proposal, onOpenTask, onGoToTasks }: Props) {
     if (!ok) return
     try {
       await deletePackage.mutateAsync({ packageId })
-      toast.success(`ลบชุดนำเสนอ #${pkg.seq} แล้ว`)
       if (storeId && stores.includes(storeId)) setStore(null)
     } catch {
       // error already toasted by the hook

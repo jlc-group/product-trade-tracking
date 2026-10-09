@@ -1,4 +1,4 @@
-import { autoCompletionHint, canToggleTask, LEVEL_LABEL } from '@flowtrade/shared'
+import { autoCompletionHint, canToggleTask, LEVEL_LABEL, taskLockReason } from '@flowtrade/shared'
 import { ChevronRightIcon, Loader2Icon } from 'lucide-react'
 import { Link } from 'react-router'
 import type { TaskRowItem } from '@/api'
@@ -34,7 +34,9 @@ export function WorkTaskRow({
   const { task, proposal, stores, path } = item
   // A task with a table (or sub tasks) is ticked by the system when it's complete, never by hand.
   const auto = item.completion !== 'manual'
+  // Department-aware: a task of another department is read-only, even for its assignees.
   const allowed = canToggleTask(user, proposal, task) && !auto
+  const lockReason = taskLockReason(user, task)
   const done = toggler.isDone(item)
   const pending = toggler.isPending(item)
   const checkboxId = `work-task-${task.id}`
@@ -51,7 +53,7 @@ export function WorkTaskRow({
             disabled={!allowed}
             onCheckedChange={(v) => toggler.toggle(item, v === true)}
             aria-label={done ? `ยกเลิกเครื่องหมายเสร็จ: ${task.title}` : `ทำเครื่องหมายว่าเสร็จ: ${task.title}`}
-            title={item.completion !== 'manual' ? autoCompletionHint(item.completion) : allowed ? undefined : 'เฉพาะผู้รับผิดชอบหรือทีมโปรเจกต์เท่านั้นที่ทำเครื่องหมายได้'}
+            title={lockReason ?? (item.completion !== 'manual' ? autoCompletionHint(item.completion) : allowed ? undefined : 'เฉพาะผู้รับผิดชอบหรือทีมโปรเจกต์เท่านั้นที่ทำเครื่องหมายได้')}
             className="size-[18px] rounded-full data-checked:border-success data-checked:bg-success"
           />
         )}
